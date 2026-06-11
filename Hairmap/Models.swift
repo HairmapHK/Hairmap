@@ -283,6 +283,182 @@ struct Stylist: Identifiable, Codable, Hashable {
     }
 }
 
+enum CatalogApplicationStatus: String, Codable, Hashable {
+    case pending
+    case approved
+    case rejected
+
+    var title: String {
+        switch self {
+        case .pending: "待審批"
+        case .approved: "已批准"
+        case .rejected: "已拒絕"
+        }
+    }
+}
+
+struct StylistApplication: Identifiable, Codable, Hashable {
+    var id: String
+    var submittedBy: UUID
+    var stylistID: String
+    var ownerID: UUID
+    var salonID: String
+    var name: String
+    var title: String
+    var rating: Double
+    var reviewsCount: Int
+    var languages: String
+    var experience: String
+    var specialties: [String]
+    var avatarURL: String
+    var bio: String
+    var basePrice: Int
+    var servicesPayload: [ServiceItem]
+    var worksPayload: [PortfolioWork]
+    var status: CatalogApplicationStatus
+    var adminNote: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case submittedBy = "submitted_by"
+        case stylistID = "stylist_id"
+        case ownerID = "owner_id"
+        case salonID = "salon_id"
+        case name
+        case title
+        case rating
+        case reviewsCount = "reviews_count"
+        case languages
+        case experience
+        case specialties
+        case avatarURL = "avatar_url"
+        case bio
+        case basePrice = "base_price"
+        case servicesPayload = "services_payload"
+        case worksPayload = "works_payload"
+        case status
+        case adminNote = "admin_note"
+    }
+
+    init(id: String, submittedBy: UUID, stylist: Stylist) {
+        self.id = id
+        self.submittedBy = submittedBy
+        stylistID = stylist.id
+        ownerID = submittedBy
+        salonID = stylist.salonID
+        name = stylist.name
+        title = stylist.title
+        rating = stylist.rating
+        reviewsCount = stylist.reviewsCount
+        languages = stylist.languages
+        experience = stylist.experience
+        specialties = stylist.specialties
+        avatarURL = stylist.avatarURL
+        bio = stylist.bio
+        basePrice = stylist.basePrice
+        servicesPayload = stylist.services
+        worksPayload = stylist.works
+        status = .pending
+        adminNote = ""
+    }
+
+    func asStylist() -> Stylist {
+        Stylist(
+            id: stylistID,
+            ownerID: ownerID,
+            salonID: salonID,
+            name: name,
+            title: title,
+            rating: rating,
+            reviewsCount: reviewsCount,
+            languages: languages,
+            experience: experience,
+            specialties: specialties,
+            avatarURL: avatarURL,
+            bio: bio,
+            basePrice: basePrice,
+            works: worksPayload,
+            services: servicesPayload,
+            reviews: [],
+            isActive: true,
+            isFeatured: false,
+            displayOrder: 100
+        )
+    }
+}
+
+struct SalonApplication: Identifiable, Codable, Hashable {
+    var id: String
+    var submittedBy: UUID
+    var salonID: String
+    var name: String
+    var location: String
+    var distance: Double
+    var rating: Double
+    var tags: [String]
+    var openHours: String
+    var phone: String
+    var startPrice: Int
+    var imageURL: String
+    var worksPayload: [PortfolioWork]
+    var status: CatalogApplicationStatus
+    var adminNote: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case submittedBy = "submitted_by"
+        case salonID = "salon_id"
+        case name
+        case location
+        case distance
+        case rating
+        case tags
+        case openHours = "open_hours"
+        case phone
+        case startPrice = "start_price"
+        case imageURL = "image_url"
+        case worksPayload = "works_payload"
+        case status
+        case adminNote = "admin_note"
+    }
+
+    init(id: String, submittedBy: UUID, salon: Salon, works: [PortfolioWork]) {
+        self.id = id
+        self.submittedBy = submittedBy
+        salonID = salon.id
+        name = salon.name
+        location = salon.location
+        distance = salon.distance
+        rating = salon.rating
+        tags = salon.tags
+        openHours = salon.openHours
+        phone = salon.phone
+        startPrice = salon.startPrice
+        imageURL = salon.imageURL
+        worksPayload = works
+        status = .pending
+        adminNote = ""
+    }
+
+    func asSalon() -> Salon {
+        Salon(
+            id: salonID,
+            name: name,
+            location: location,
+            distance: distance,
+            rating: rating,
+            tags: tags,
+            openHours: openHours,
+            phone: phone,
+            startPrice: startPrice,
+            imageURL: imageURL,
+            isActive: true,
+            isFeatured: false,
+            displayOrder: 100
+        )
+    }
+}
+
 struct InspirationItem: Identifiable, Codable, Hashable {
     var id: String
     var stylistID: String
@@ -590,6 +766,8 @@ struct CatalogPayload {
     var blockedSlots: [BlockedSlot]
     var salonWorks: [String: [PortfolioWork]] = [:]
     var rankingOverrides: [RankingOverride] = []
+    var stylistApplications: [StylistApplication] = []
+    var salonApplications: [SalonApplication] = []
     var inspirationComments: [String: [LookCommentItem]] = [:]
     var likedLookIDs: Set<String> = []
     var likedCommentIDs: Set<String> = []

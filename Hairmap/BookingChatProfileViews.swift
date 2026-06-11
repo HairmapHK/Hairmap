@@ -2044,8 +2044,10 @@ struct UserProfileView: View {
             services: services.isEmpty ? SeedData.services.filter { $0.stylistID == "master-leo" } : services,
             reviews: []
         )
-        await store.insertOrSaveStylist(stylist)
-        store.selectedStylistID = stylist.id
+        let didPublishImmediately = await store.submitStylistApplication(stylist)
+        if didPublishImmediately {
+            store.selectedStylistID = stylist.id
+        }
     }
 
     private func createSalonProfile() {
@@ -2097,8 +2099,10 @@ struct UserProfileView: View {
             Array(salonPortfolio.prefix(10)),
             folder: "salon-portfolio"
         )
-        await store.saveSalon(salon, works: salonPortfolio)
-        store.selectedSalonID = salon.id
+        let didPublishImmediately = await store.submitSalonApplication(salon, works: salonPortfolio)
+        if didPublishImmediately {
+            store.selectedSalonID = salon.id
+        }
     }
 }
 
@@ -2216,12 +2220,23 @@ private struct ProfileAdminPanel: View {
                 Label("平台營運管理", systemImage: "slider.horizontal.3")
                     .font(.title3.weight(.black))
                     .foregroundStyle(HMTheme.ink)
-                Text("快速調整首頁優先顯示、排行榜置頂與上下架。所有操作會直接寫入 Supabase。")
+                Text("審批新申請、調整首頁優先顯示、排行榜置頂與上下架。所有操作會直接寫入 Supabase。")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineSpacing(3)
             }
             .padding(.top, 12)
+
+            if !store.pendingStylistApplications.isEmpty || !store.pendingSalonApplications.isEmpty {
+                ProfileAdminSection(title: "待審批申請") {
+                    ForEach(store.pendingStylistApplications) { application in
+                        ProfileAdminStylistApplicationRow(application: application)
+                    }
+                    ForEach(store.pendingSalonApplications) { application in
+                        ProfileAdminSalonApplicationRow(application: application)
+                    }
+                }
+            }
 
             ProfileAdminSearchField(text: $adminSearchText)
 
@@ -2394,6 +2409,87 @@ private struct ProfileAdminSalonRow: View {
             onRank: { Task { await store.pinRanking(itemID: salon.id, itemType: "salon", rankingKey: "salon_hot", title: salon.name, score: salon.rating) } },
             onHide: { Task { await store.hideSalonFromCatalog(salon) } }
         )
+    }
+}
+
+private struct ProfileAdminStylistApplicationRow: View {
+    @Environment(HairmapStore.self) private var store
+    let application: StylistApplication
+
+    var body: some View {
+        ProfileAdminApplicationRow(
+            imageURL: application.avatarURL,
+            badge: "髮型師申請",
+            title: application.name,
+            subtitle: "\(application.title) · \(application.experience)",
+            meta: "\(application.servicesPayload.count) 項服務 · \(application.worksPayload.count) 張作品",
+            onApprove: { Task { await store.approveStylistApplication(application) } },
+            onReject: { Task { await store.rejectStylistApplication(application) } }
+        )
+    }
+}
+
+private struct ProfileAdminSalonApplicationRow: View {
+    @Environment(HairmapStore.self) private var store
+    let application: SalonApplication
+
+    var body: some View {
+        ProfileAdminApplicationRow(
+            imageURL: application.imageURL,
+            badge: "沙龍申請",
+            title: application.name,
+            subtitle: "\(application.location) · HK$\(application.startPrice) 起",
+            meta: "\(application.tags.prefix(3).joined(separator: " / ")) · \(application.worksPayload.count) 張作品",
+            onApprove: { Task { await store.approveSalonApplication(application) } },
+            onReject: { Task { await store.rejectSalonApplication(application) } }
+        )
+    }
+}
+
+private struct ProfileAdminApplicationRow: View {
+    let imageURL: String
+    let badge: String
+    let title: String
+    let subtitle: String
+    let meta: String
+    let onApprove: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ProfileAdminThumbnail(urlString: imageURL)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(badge)
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(Color(red: 0.58, green: 0.38, blue: 0.04))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 1.0, green: 0.94, blue: 0.72), in: Capsule())
+                    Text(title)
+                        .font(.subheadline.weight(.black))
+                        .foregroundStyle(HMTheme.ink)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(meta)
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                ProfileAdminButton(title: "批准公開", isPrimary: true, action: onApprove)
+                ProfileAdminButton(title: "拒絕", isDestructive: true, action: onReject)
+            }
+        }
+        .padding(12)
+        .background(Color(red: 1.0, green: 0.985, blue: 0.94), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(red: 0.9, green: 0.68, blue: 0.22), lineWidth: 1))
     }
 }
 
@@ -2786,7 +2882,7 @@ private struct ProfileStylistCreatePanel: View {
         VStack(alignment: .leading, spacing: 18) {
             ProfileFormIntro(
                 title: "新增專業髮型師檔案",
-                subtitle: "填寫髮型師個人檔案與主要剪/燙/染/護服務。建立成功後，客戶即可在平台上預約其服務！"
+                subtitle: "填寫髮型師個人檔案與主要剪/燙/染/護服務。提交後會進入平台審批，批准後才會公開給客戶預約。"
             )
 
             ProfileField(title: "設計師姓名", required: true, placeholder: "例如: Leo Master, Marcus Lam", text: $name)
@@ -2831,7 +2927,7 @@ private struct ProfileStylistCreatePanel: View {
             )
 
             Button(action: onCreate) {
-                Text("確認建立髮型師檔案")
+                Text("提交髮型師檔案審批")
                     .font(.callout.weight(.black))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -2869,7 +2965,7 @@ private struct ProfileSalonCreatePanel: View {
         VStack(alignment: .leading, spacing: 18) {
             ProfileFormIntro(
                 title: "新增實體沙龍館檔案",
-                subtitle: "登記您的沙龍館名稱、具體地址、營業時間以及最低起跳預算，打造全方位的沙龍展示名片。"
+                subtitle: "登記您的沙龍館名稱、具體地址、營業時間以及最低起跳預算。提交後會進入平台審批，批准後才會公開展示。"
             )
 
             ProfileField(title: "沙龍名稱", required: true, placeholder: "例如: Artisan Space, Noir Prestige Salon", text: $name)
@@ -2909,7 +3005,7 @@ private struct ProfileSalonCreatePanel: View {
             ProfileCoverSelector(selectedCoverURL: $selectedCoverURL, customCoverURL: $customCoverURL)
 
             Button(action: onCreate) {
-                Text("確認建立沙龍店面檔案")
+                Text("提交沙龍店面審批")
                     .font(.callout.weight(.black))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)

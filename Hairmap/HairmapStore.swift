@@ -41,6 +41,8 @@ final class HairmapStore {
     var blockedSlots: [BlockedSlot] = SeedData.blockedSlots
     var salonWorks: [String: [PortfolioWork]] = [:]
     var rankingOverrides: [RankingOverride] = []
+    var pendingStylistApplications: [StylistApplication] = []
+    var pendingSalonApplications: [SalonApplication] = []
     var inspirationComments: [String: [LookCommentItem]] = [:]
     var likedLookIDs: Set<String> = []
     var likedCommentIDs: Set<String> = []
@@ -91,6 +93,8 @@ final class HairmapStore {
             blockedSlots = payload.blockedSlots
             salonWorks = payload.salonWorks
             rankingOverrides = payload.rankingOverrides
+            pendingStylistApplications = payload.stylistApplications
+            pendingSalonApplications = payload.salonApplications
             inspirationComments = payload.inspirationComments
             likedLookIDs = payload.likedLookIDs
             likedCommentIDs = payload.likedCommentIDs
@@ -443,6 +447,50 @@ final class HairmapStore {
         }
     }
 
+    @discardableResult
+    func submitStylistApplication(_ stylist: Stylist) async -> Bool {
+        if isAdmin {
+            await insertOrSaveStylist(stylist)
+            return true
+        }
+
+        guard gateway.isConfigured, currentProfile != nil else {
+            statusMessage = "請先登入正式帳號，才可以提交髮型師申請"
+            return false
+        }
+
+        do {
+            try await gateway.submitStylistApplication(stylist)
+            statusMessage = "髮型師檔案已提交，待平台審批後才會公開"
+            await refreshCatalog()
+        } catch {
+            statusMessage = "髮型師申請提交失敗，請稍後再試"
+        }
+        return false
+    }
+
+    @discardableResult
+    func submitSalonApplication(_ salon: Salon, works: [PortfolioWork]) async -> Bool {
+        if isAdmin {
+            await saveSalon(salon, works: works)
+            return true
+        }
+
+        guard gateway.isConfigured, currentProfile != nil else {
+            statusMessage = "請先登入正式帳號，才可以提交沙龍申請"
+            return false
+        }
+
+        do {
+            try await gateway.submitSalonApplication(salon, works: works)
+            statusMessage = "沙龍檔案已提交，待平台審批後才會公開"
+            await refreshCatalog()
+        } catch {
+            statusMessage = "沙龍申請提交失敗，請稍後再試"
+        }
+        return false
+    }
+
     func uploadProfileMediaIfNeeded(_ urlString: String, folder: String) async -> String {
         let clean = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard clean.hasPrefix("file://"), let fileURL = URL(string: clean) else { return clean }
@@ -476,6 +524,48 @@ final class HairmapStore {
             isAdmin = try await gateway.currentAdminRole() != nil
         } catch {
             isAdmin = false
+        }
+    }
+
+    func approveStylistApplication(_ application: StylistApplication) async {
+        do {
+            try await gateway.approveStylistApplication(application)
+            pendingStylistApplications.removeAll { $0.id == application.id }
+            statusMessage = "\(application.name) 已批准並公開到 Supabase"
+            await refreshCatalog()
+        } catch {
+            statusMessage = "髮型師申請批准失敗"
+        }
+    }
+
+    func rejectStylistApplication(_ application: StylistApplication) async {
+        do {
+            try await gateway.rejectStylistApplication(application)
+            pendingStylistApplications.removeAll { $0.id == application.id }
+            statusMessage = "\(application.name) 申請已拒絕"
+        } catch {
+            statusMessage = "髮型師申請拒絕失敗"
+        }
+    }
+
+    func approveSalonApplication(_ application: SalonApplication) async {
+        do {
+            try await gateway.approveSalonApplication(application)
+            pendingSalonApplications.removeAll { $0.id == application.id }
+            statusMessage = "\(application.name) 已批准並公開到 Supabase"
+            await refreshCatalog()
+        } catch {
+            statusMessage = "沙龍申請批准失敗"
+        }
+    }
+
+    func rejectSalonApplication(_ application: SalonApplication) async {
+        do {
+            try await gateway.rejectSalonApplication(application)
+            pendingSalonApplications.removeAll { $0.id == application.id }
+            statusMessage = "\(application.name) 申請已拒絕"
+        } catch {
+            statusMessage = "沙龍申請拒絕失敗"
         }
     }
 

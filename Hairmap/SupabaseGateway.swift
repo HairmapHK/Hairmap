@@ -148,6 +148,24 @@ final class SupabaseGateway {
         }
     }
 
+    private struct ApplicationReviewPayload: Encodable {
+        let status: String
+        let reviewedBy: UUID
+        let reviewedAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case status
+            case reviewedBy = "reviewed_by"
+            case reviewedAt = "reviewed_at"
+        }
+    }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     var isConfigured: Bool { client != nil }
 
     init(settings: SupabaseSettings? = .load()) {
@@ -334,6 +352,20 @@ final class SupabaseGateway {
             .execute()
             .value) ?? []
 
+        let stylistApplications: [StylistApplication] = (try? await client.from("stylist_applications")
+            .select()
+            .eq("status", value: CatalogApplicationStatus.pending.rawValue)
+            .order("created_at", ascending: false)
+            .execute()
+            .value) ?? []
+
+        let salonApplications: [SalonApplication] = (try? await client.from("salon_applications")
+            .select()
+            .eq("status", value: CatalogApplicationStatus.pending.rawValue)
+            .order("created_at", ascending: false)
+            .execute()
+            .value) ?? []
+
         let session = try? await client.auth.session
         let likedLooks: [InspirationReactionRow]
         let likedComments: [CommentReactionRow]
@@ -398,6 +430,8 @@ final class SupabaseGateway {
             blockedSlots: blockedSlots,
             salonWorks: salonWorks,
             rankingOverrides: rankingOverrides,
+            stylistApplications: stylistApplications,
+            salonApplications: salonApplications,
             inspirationComments: threadComments(commentRows),
             likedLookIDs: Set(likedLooks.map(\.inspirationID)),
             likedCommentIDs: Set(likedComments.map(\.commentID)),
@@ -763,6 +797,81 @@ final class SupabaseGateway {
                 .insert(rows)
                 .execute()
         }
+    }
+
+    func submitStylistApplication(_ stylist: Stylist) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let application = StylistApplication(
+            id: "stylist-application-\(stylist.id)",
+            submittedBy: session.user.id,
+            stylist: stylist
+        )
+        try await client.from("stylist_applications")
+            .upsert(application, onConflict: "id")
+            .execute()
+    }
+
+    func submitSalonApplication(_ salon: Salon, works: [PortfolioWork]) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let application = SalonApplication(
+            id: "salon-application-\(salon.id)",
+            submittedBy: session.user.id,
+            salon: salon,
+            works: works
+        )
+        try await client.from("salon_applications")
+            .upsert(application, onConflict: "id")
+            .execute()
+    }
+
+    func approveStylistApplication(_ application: StylistApplication) async throws {
+        let stylist = application.asStylist()
+        try await saveStylist(stylist)
+        try await setStylistApplicationStatus(id: application.id, status: .approved)
+    }
+
+    func rejectStylistApplication(_ application: StylistApplication) async throws {
+        try await setStylistApplicationStatus(id: application.id, status: .rejected)
+    }
+
+    func approveSalonApplication(_ application: SalonApplication) async throws {
+        let salon = application.asSalon()
+        try await saveSalon(salon, works: application.worksPayload)
+        try await setSalonApplicationStatus(id: application.id, status: .approved)
+    }
+
+    func rejectSalonApplication(_ application: SalonApplication) async throws {
+        try await setSalonApplicationStatus(id: application.id, status: .rejected)
+    }
+
+    private func setStylistApplicationStatus(id: String, status: CatalogApplicationStatus) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let payload = ApplicationReviewPayload(
+            status: status.rawValue,
+            reviewedBy: session.user.id,
+            reviewedAt: Self.iso8601.string(from: Date())
+        )
+        try await client.from("stylist_applications")
+            .update(payload)
+            .eq("id", value: id)
+            .execute()
+    }
+
+    private func setSalonApplicationStatus(id: String, status: CatalogApplicationStatus) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let payload = ApplicationReviewPayload(
+            status: status.rawValue,
+            reviewedBy: session.user.id,
+            reviewedAt: Self.iso8601.string(from: Date())
+        )
+        try await client.from("salon_applications")
+            .update(payload)
+            .eq("id", value: id)
+            .execute()
     }
 
     func updateStylistAdminState(id: String, isActive: Bool, isFeatured: Bool, displayOrder: Int) async throws {

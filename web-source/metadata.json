@@ -1,0 +1,6 @@
+{
+  "name": "Hairmap",
+  "description": "Hairmap - 頂尖美髮沙龍與專業設計師探索平台，預約諮詢、靈感動態與一鍵排隊體驗。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

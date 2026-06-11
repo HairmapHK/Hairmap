@@ -1,0 +1,7 @@
+.DS_Store
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+Config.xcconfig
+.tmp-supabase-swift/

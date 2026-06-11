@@ -468,7 +468,9 @@ private struct StylistTodayBookingsPage: View {
     private func mergeStoreBookings() {
         let liveRows = store.bookings
             .filter { $0.stylistID == stylistID && $0.status != .cancelled && $0.status != .completed }
-            .map(DashboardBookingRow.init)
+            .map { booking in
+                DashboardBookingRow(booking: booking)
+            }
 
         guard !liveRows.isEmpty else { return }
         var merged = liveRows

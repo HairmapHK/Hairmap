@@ -10,6 +10,8 @@ plutil -lint \
   Config/ExportOptions-TestFlight.plist \
   Hairmap/PrivacyInfo.xcprivacy
 
+tools/release_preflight.sh
+
 echo "== Hairmap CI: catalog import tool =="
 python3 -m py_compile tools/generate_catalog_seed_sql.py
 python3 tools/generate_catalog_seed_sql.py \

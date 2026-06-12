@@ -69,6 +69,12 @@ Full local CI check:
 tools/ci_check.sh
 ```
 
+Release preflight only:
+
+```sh
+tools/release_preflight.sh
+```
+
 Release simulator build:
 
 ```sh

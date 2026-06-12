@@ -40,6 +40,8 @@
 
 ## Final Build
 
+- Run `tools/release_preflight.sh`.
+- Run `tools/ci_check.sh`.
 - Run a Release build from Xcode.
 - Archive with a physical or generic iOS device destination.
 - Validate the archive in Xcode Organizer.

@@ -18,6 +18,12 @@ Run the local validation/build check:
 tools/ci_check.sh
 ```
 
+Run the App Store/TestFlight release preflight only:
+
+```sh
+tools/release_preflight.sh
+```
+
 To force a specific simulator for the test step:
 
 ```sh

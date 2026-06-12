@@ -60,16 +60,17 @@ final class HairmapStore {
     var isPasswordResetSheetPresented = false
     var isAdmin = false
     var isSupabaseConfigured: Bool { gateway.isConfigured }
+    var supabaseEnvironmentName: String { gateway.environmentName }
     private var expectsPasswordReset = false
 
     init() {
         self.gateway = SupabaseGateway()
-        statusMessage = gateway.isConfigured ? "Supabase 已配置" : "未配置 Supabase，使用本地種子資料"
+        statusMessage = gateway.isConfigured ? "Supabase 已配置（\(gateway.environmentName)）" : "未配置 Supabase，使用本地種子資料"
     }
 
     init(gateway: SupabaseGateway) {
         self.gateway = gateway
-        statusMessage = gateway.isConfigured ? "Supabase 已配置" : "未配置 Supabase，使用本地種子資料"
+        statusMessage = gateway.isConfigured ? "Supabase 已配置（\(gateway.environmentName)）" : "未配置 Supabase，使用本地種子資料"
     }
 
     func bootstrap() async {
@@ -99,7 +100,7 @@ final class HairmapStore {
             likedLookIDs = payload.likedLookIDs
             likedCommentIDs = payload.likedCommentIDs
             blockedChatStylistIDs = payload.blockedChatStylistIDs
-            statusMessage = gateway.isConfigured ? "Supabase 同步完成" : "本地種子資料模式"
+            statusMessage = gateway.isConfigured ? "Supabase 同步完成（\(gateway.environmentName)）" : "本地種子資料模式"
         } catch {
             statusMessage = "Supabase 讀取失敗，已保留本地資料"
         }

@@ -1,0 +1,4 @@
+APP_ENVIRONMENT = staging
+SUPABASE_URL = https://YOUR_STAGING_PROJECT_REF.supabase.co
+SUPABASE_PUBLISHABLE_KEY = sb_publishable_YOUR_STAGING_KEY
+SUPABASE_REDIRECT_URL = hairmap://auth-callback

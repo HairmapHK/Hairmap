@@ -4,5 +4,8 @@ build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
+__pycache__/
 Config.xcconfig
+Config/Supabase-Staging.xcconfig
+Config/Supabase-Production.xcconfig
 .tmp-supabase-swift/

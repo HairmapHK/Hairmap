@@ -2224,6 +2224,14 @@ private struct ProfileAdminPanel: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineSpacing(3)
+
+                Label("目前資料環境：\(store.supabaseEnvironmentName)", systemImage: "server.rack")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(store.supabaseEnvironmentName == "production" ? HMTheme.amber : HMTheme.emerald)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.white, in: Capsule())
+                    .overlay(Capsule().stroke(.black.opacity(0.08), lineWidth: 1))
             }
             .padding(.top, 12)
 

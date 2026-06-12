@@ -3,12 +3,18 @@ import Storage
 import Supabase
 
 struct SupabaseSettings {
+    let environment: String
     let url: URL
     let publishableKey: String
     let redirectURL: URL
 
     nonisolated static func load() -> SupabaseSettings? {
         let info = Bundle.main.infoDictionary ?? [:]
+        let rawEnvironment = (
+            info["APP_ENVIRONMENT"] as? String
+            ?? ProcessInfo.processInfo.environment["APP_ENVIRONMENT"]
+            ?? "development"
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
         let urlString = (
             info["SUPABASE_URL"] as? String
             ?? ProcessInfo.processInfo.environment["SUPABASE_URL"]
@@ -34,7 +40,8 @@ struct SupabaseSettings {
             return nil
         }
 
-        return SupabaseSettings(url: url, publishableKey: key, redirectURL: redirectURL)
+        let environment = rawEnvironment.isEmpty || rawEnvironment.hasPrefix("$(") ? "development" : rawEnvironment
+        return SupabaseSettings(environment: environment, url: url, publishableKey: key, redirectURL: redirectURL)
     }
 }
 
@@ -167,6 +174,7 @@ final class SupabaseGateway {
     }()
 
     var isConfigured: Bool { client != nil }
+    var environmentName: String { settings?.environment ?? "local" }
 
     init(settings: SupabaseSettings? = .load()) {
         self.settings = settings

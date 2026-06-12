@@ -8,26 +8,33 @@ struct SupabaseSettings {
     let publishableKey: String
     let redirectURL: URL
 
-    nonisolated static func load() -> SupabaseSettings? {
-        let info = Bundle.main.infoDictionary ?? [:]
+    nonisolated static func load(
+        info: [String: Any] = Bundle.main.infoDictionary ?? [:],
+        environment processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> SupabaseSettings? {
+        if arguments.contains("--hairmap-local-mode") || processEnvironment["HAIRMAP_DISABLE_SUPABASE"] == "1" {
+            return nil
+        }
+
         let rawEnvironment = (
             info["APP_ENVIRONMENT"] as? String
-            ?? ProcessInfo.processInfo.environment["APP_ENVIRONMENT"]
+            ?? processEnvironment["APP_ENVIRONMENT"]
             ?? "development"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let urlString = (
             info["SUPABASE_URL"] as? String
-            ?? ProcessInfo.processInfo.environment["SUPABASE_URL"]
+            ?? processEnvironment["SUPABASE_URL"]
             ?? ""
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let key = (
             info["SUPABASE_PUBLISHABLE_KEY"] as? String
-            ?? ProcessInfo.processInfo.environment["SUPABASE_PUBLISHABLE_KEY"]
+            ?? processEnvironment["SUPABASE_PUBLISHABLE_KEY"]
             ?? ""
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let redirect = (
             info["SUPABASE_REDIRECT_URL"] as? String
-            ?? ProcessInfo.processInfo.environment["SUPABASE_REDIRECT_URL"]
+            ?? processEnvironment["SUPABASE_REDIRECT_URL"]
             ?? "hairmap://auth-callback"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
 

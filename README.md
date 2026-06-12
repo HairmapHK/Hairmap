@@ -18,6 +18,14 @@ Run the local validation/build check:
 tools/ci_check.sh
 ```
 
+To force a specific simulator for the test step:
+
+```sh
+IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro' tools/ci_check.sh
+```
+
+The UI launch smoke test is kept in `HairmapUITests/` for manual Xcode runs, but CI runs the stable unit test bundle only.
+
 ## Supabase Setup
 
 1. Create a Supabase project.

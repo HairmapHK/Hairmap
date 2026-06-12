@@ -1,0 +1,168 @@
+import XCTest
+@testable import Hairmap
+
+@MainActor
+final class HairmapModelTests: XCTestCase {
+    func testSupabaseSettingsCanBeDisabledForUITesting() {
+        let settings = SupabaseSettings.load(
+            info: [
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
+                "SUPABASE_REDIRECT_URL": "hairmap://auth-callback"
+            ],
+            environment: ["HAIRMAP_DISABLE_SUPABASE": "1"],
+            arguments: []
+        )
+
+        XCTAssertNil(settings)
+    }
+
+    func testSupabaseSettingsReadsEnvironmentAndRejectsMissingKeys() {
+        let settings = SupabaseSettings.load(
+            info: [
+                "APP_ENVIRONMENT": "staging",
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
+                "SUPABASE_REDIRECT_URL": "hairmap://auth-callback"
+            ],
+            environment: [:],
+            arguments: []
+        )
+
+        XCTAssertEqual(settings?.environment, "staging")
+        XCTAssertEqual(settings?.url.absoluteString, "https://example.supabase.co")
+        XCTAssertEqual(settings?.redirectURL.absoluteString, "hairmap://auth-callback")
+
+        let missingKey = SupabaseSettings.load(
+            info: [
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_REDIRECT_URL": "hairmap://auth-callback"
+            ],
+            environment: [:],
+            arguments: []
+        )
+        XCTAssertNil(missingKey)
+    }
+
+    func testStylistDecodingKeepsBackwardsCompatibleDefaults() throws {
+        let json = """
+        {
+          "id": "master-leo",
+          "owner_id": null,
+          "salon_id": "s1",
+          "name": "Master Leo",
+          "title": "首席設計師",
+          "rating": 4.9,
+          "reviews_count": 12,
+          "languages": "中 / 英",
+          "experience": "10年以上",
+          "specialties": ["挑染專家", "經典剪髮"],
+          "avatar_url": "https://example.com/avatar.jpg"
+        }
+        """.data(using: .utf8)!
+
+        let stylist = try JSONDecoder().decode(Stylist.self, from: json)
+
+        XCTAssertEqual(stylist.id, "master-leo")
+        XCTAssertEqual(stylist.bio, "")
+        XCTAssertEqual(stylist.basePrice, 0)
+        XCTAssertTrue(stylist.isActive)
+        XCTAssertFalse(stylist.isFeatured)
+        XCTAssertEqual(stylist.displayOrder, 100)
+        XCTAssertTrue(stylist.works.isEmpty)
+        XCTAssertTrue(stylist.services.isEmpty)
+        XCTAssertTrue(stylist.reviews.isEmpty)
+    }
+
+    func testInspirationItemDecodingKeepsOptionalFeatureDefaults() throws {
+        let json = """
+        {
+          "id": "look-1",
+          "stylist_id": "master-leo",
+          "title": "銀灰精靈短髮",
+          "salon_name": "Julian's Studio",
+          "location": "深圳",
+          "tags": ["銀灰髮", "短髮造型"],
+          "image_url": "https://example.com/look.jpg",
+          "category": "熱門"
+        }
+        """.data(using: .utf8)!
+
+        let item = try JSONDecoder().decode(InspirationItem.self, from: json)
+
+        XCTAssertEqual(item.title, "銀灰精靈短髮")
+        XCTAssertEqual(item.authorName, "")
+        XCTAssertTrue(item.mediaURLs.isEmpty)
+        XCTAssertTrue(item.mediaKinds.isEmpty)
+        XCTAssertEqual(item.likeCount, 0)
+        XCTAssertEqual(item.commentCount, 0)
+        XCTAssertEqual(item.shareCount, 0)
+        XCTAssertFalse(item.isUserPost)
+    }
+
+    func testCatalogApplicationsConvertBackToPublicModels() {
+        let submitterID = UUID()
+        let service = ServiceItem(
+            id: "service-cut",
+            stylistID: "stylist-new",
+            name: "招牌剪髮",
+            category: "剪髮",
+            duration: 60,
+            description: "含洗髮與造型",
+            price: 380
+        )
+        let work = PortfolioWork(
+            id: "work-1",
+            stylistID: "stylist-new",
+            title: "日系剪裁",
+            imageURL: "https://example.com/work.jpg"
+        )
+        let stylist = Stylist(
+            id: "stylist-new",
+            salonID: "salon-new",
+            name: "New Stylist",
+            title: "設計師",
+            rating: 5,
+            reviewsCount: 0,
+            languages: "中 / 英",
+            experience: "5年資歷",
+            specialties: ["日系剪裁"],
+            avatarURL: "https://example.com/avatar.jpg",
+            bio: "擅長自然層次。",
+            basePrice: 380,
+            works: [work],
+            services: [service]
+        )
+
+        let stylistApplication = StylistApplication(id: "app-1", submittedBy: submitterID, stylist: stylist)
+        let publicStylist = stylistApplication.asStylist()
+
+        XCTAssertEqual(stylistApplication.status, .pending)
+        XCTAssertEqual(publicStylist.ownerID, submitterID)
+        XCTAssertEqual(publicStylist.services, [service])
+        XCTAssertEqual(publicStylist.works, [work])
+        XCTAssertTrue(publicStylist.isActive)
+        XCTAssertFalse(publicStylist.isFeatured)
+
+        let salon = Salon(
+            id: "salon-new",
+            name: "New Salon",
+            location: "中環",
+            distance: 1.2,
+            rating: 5,
+            tags: ["日系剪裁"],
+            openHours: "10:00 - 20:00",
+            phone: "+852 2345 6789",
+            startPrice: 1200,
+            imageURL: "https://example.com/salon.jpg"
+        )
+        let salonApplication = SalonApplication(id: "salon-app-1", submittedBy: submitterID, salon: salon, works: [work])
+        let publicSalon = salonApplication.asSalon()
+
+        XCTAssertEqual(salonApplication.status, .pending)
+        XCTAssertEqual(salonApplication.worksPayload, [work])
+        XCTAssertEqual(publicSalon.id, "salon-new")
+        XCTAssertTrue(publicSalon.isActive)
+        XCTAssertFalse(publicSalon.isFeatured)
+    }
+}

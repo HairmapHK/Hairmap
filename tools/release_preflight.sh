@@ -42,6 +42,12 @@ expect_file APP_STORE_RELEASE_CHECKLIST.md
 expect_file TESTFLIGHT_RELEASE_GUIDE.md
 expect_file docs/APP_STORE_METADATA_DRAFT.md
 expect_file docs/BETA_OPERATIONS_PLAYBOOK.md
+expect_file docs/index.html
+expect_file docs/privacy.html
+expect_file docs/terms.html
+expect_file docs/support.html
+expect_file docs/GITHUB_PAGES_SETUP.md
+expect_file docs/RELEASE_NOTES_DRAFT.md
 
 plutil -lint Config/Info.plist Config/ExportOptions-TestFlight.plist Hairmap/PrivacyInfo.xcprivacy >/dev/null
 

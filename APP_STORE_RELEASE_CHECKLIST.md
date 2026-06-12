@@ -18,6 +18,7 @@
 - Add a support URL.
 - Add a privacy policy URL.
 - Add terms of service URL if available.
+- Enable GitHub Pages from `/docs` or replace the draft URLs with your own domain.
 - Complete age rating questionnaire.
 - Prepare review notes with a test customer account and a test stylist account.
 - Prepare screenshots for iPhone 6.9-inch, iPhone 6.5-inch/6.7-inch if requested, and iPad if the app remains universal.

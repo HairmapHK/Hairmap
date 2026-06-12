@@ -37,10 +37,12 @@ hair,salon,stylist,haircut,hair color,booking,beauty,Hong Kong,髮型,髮型師,
 
 ## Support And Legal URLs
 
-- Support URL: `https://YOUR_DOMAIN/support`
-- Privacy Policy URL: `https://YOUR_DOMAIN/privacy`
-- Terms URL: `https://YOUR_DOMAIN/terms`
-- Marketing URL: optional
+- Support URL: `https://kelvinfung398398-sudo.github.io/Hairmap/support.html`
+- Privacy Policy URL: `https://kelvinfung398398-sudo.github.io/Hairmap/privacy.html`
+- Terms URL: `https://kelvinfung398398-sudo.github.io/Hairmap/terms.html`
+- Marketing URL: `https://kelvinfung398398-sudo.github.io/Hairmap/`
+
+Enable GitHub Pages from the `docs/` folder first. See `docs/GITHUB_PAGES_SETUP.md`.
 
 ## Reviewer Notes
 

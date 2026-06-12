@@ -46,6 +46,17 @@ The automatic provisioning retry also reported that the team has no registered d
 9. Select `App Store Connect`.
 10. Upload to TestFlight.
 
+## App Store Connect URLs
+
+If GitHub Pages is enabled from the `/docs` folder:
+
+```text
+Support URL: https://kelvinfung398398-sudo.github.io/Hairmap/support.html
+Privacy Policy URL: https://kelvinfung398398-sudo.github.io/Hairmap/privacy.html
+Terms URL: https://kelvinfung398398-sudo.github.io/Hairmap/terms.html
+Marketing URL: https://kelvinfung398398-sudo.github.io/Hairmap/
+```
+
 ## External Test Plan
 
 Use a staged rollout:

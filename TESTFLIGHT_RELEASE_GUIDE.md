@@ -63,6 +63,12 @@ Production should only contain approved real stylists, salons, services, portfol
 
 ## Useful Commands
 
+Full local CI check:
+
+```sh
+tools/ci_check.sh
+```
+
 Release simulator build:
 
 ```sh

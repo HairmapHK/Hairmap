@@ -12,6 +12,12 @@ Open `Hairmap.xcodeproj` in Xcode 26.2 or newer and run the `Hairmap` scheme.
 
 Without Supabase settings, the app runs in local seed-data mode so the full UX is still testable.
 
+Run the local validation/build check:
+
+```sh
+tools/ci_check.sh
+```
+
 ## Supabase Setup
 
 1. Create a Supabase project.
@@ -31,6 +37,15 @@ SUPABASE_REDIRECT_URL = hairmap://auth-callback
 ```
 
 `Config/Config.xcconfig.example` contains the same keys as a copyable template.
+
+For staging/production separation, see `SUPABASE_ENVIRONMENTS.md`.
+
+## Release Prep
+
+- `APP_STORE_RELEASE_CHECKLIST.md`: App Store readiness checklist.
+- `TESTFLIGHT_RELEASE_GUIDE.md`: TestFlight upload path and signing blocker notes.
+- `docs/APP_STORE_METADATA_DRAFT.md`: App Store Connect copy, privacy labels, and reviewer notes draft.
+- `docs/BETA_OPERATIONS_PLAYBOOK.md`: staged beta testing and real stylist data collection workflow.
 
 ## Notes
 

@@ -24,6 +24,12 @@ Run the App Store/TestFlight release preflight only:
 tools/release_preflight.sh
 ```
 
+Generate a local App Store Connect submission package:
+
+```sh
+tools/prepare_submission_package.sh
+```
+
 To force a specific simulator for the test step:
 
 ```sh

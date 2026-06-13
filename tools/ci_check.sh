@@ -43,13 +43,23 @@ xcodebuild -quiet \
   build
 
 echo "== Hairmap CI: unit tests =="
+TEST_SIMULATOR_ID=""
 if [[ -z "${IOS_TEST_DESTINATION:-}" ]]; then
   SIMULATOR_ID="$(xcrun simctl list devices available | sed -n '/iPhone/{s/.*(\([0-9A-Fa-f-]\{36\}\)) (.*/\1/p; q;}')"
   if [[ -z "$SIMULATOR_ID" ]]; then
     echo "No available iPhone simulator found." >&2
     exit 1
   fi
+  TEST_SIMULATOR_ID="$SIMULATOR_ID"
   IOS_TEST_DESTINATION="id=$SIMULATOR_ID"
+elif [[ "$IOS_TEST_DESTINATION" == id=* ]]; then
+  TEST_SIMULATOR_ID="${IOS_TEST_DESTINATION#id=}"
+fi
+
+if [[ -n "$TEST_SIMULATOR_ID" ]]; then
+  xcrun simctl shutdown "$TEST_SIMULATOR_ID" >/dev/null 2>&1 || true
+  xcrun simctl boot "$TEST_SIMULATOR_ID" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$TEST_SIMULATOR_ID" -b >/dev/null
 fi
 
 xcodebuild -quiet \

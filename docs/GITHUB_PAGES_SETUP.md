@@ -7,11 +7,11 @@ Hairmap now includes static pages under `docs/`:
 - `docs/terms.html`
 - `docs/support.html`
 
-These can be published with GitHub Pages and used in App Store Connect.
+These can be published with GitHub Pages and used in App Store Connect. A GitHub Actions workflow is included at `.github/workflows/pages.yml`.
 
 ## Suggested URLs
 
-After enabling GitHub Pages from the `docs/` folder on the `main` branch:
+After enabling GitHub Pages:
 
 ```text
 https://kelvinfung398398-sudo.github.io/Hairmap/
@@ -24,13 +24,12 @@ https://kelvinfung398398-sudo.github.io/Hairmap/support.html
 
 1. Open the GitHub repository settings.
 2. Go to Pages.
-3. Set source to `Deploy from a branch`.
-4. Select branch `main`.
-5. Select folder `/docs`.
-6. Save.
-7. Wait for GitHub Pages to publish.
-8. Open the privacy/support URLs and confirm they load.
-9. Use those URLs in App Store Connect.
+3. Set source to `GitHub Actions`.
+4. Save.
+5. Go to Actions and run `Publish Hairmap Pages`, or push a docs change to `main`.
+6. Wait for GitHub Pages to publish.
+7. Open the privacy/support URLs and confirm they load.
+8. Use those URLs in App Store Connect.
 
 ## Reminder
 

@@ -48,6 +48,8 @@ expect_file docs/terms.html
 expect_file docs/support.html
 expect_file docs/GITHUB_PAGES_SETUP.md
 expect_file docs/RELEASE_NOTES_DRAFT.md
+expect_file .github/workflows/pages.yml
+expect_file tools/prepare_submission_package.sh
 
 plutil -lint Config/Info.plist Config/ExportOptions-TestFlight.plist Hairmap/PrivacyInfo.xcprivacy >/dev/null
 

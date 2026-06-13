@@ -86,6 +86,12 @@ Release preflight only:
 tools/release_preflight.sh
 ```
 
+Generate the App Store Connect submission package:
+
+```sh
+tools/prepare_submission_package.sh
+```
+
 Release simulator build:
 
 ```sh

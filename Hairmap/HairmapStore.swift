@@ -450,11 +450,6 @@ final class HairmapStore {
 
     @discardableResult
     func submitStylistApplication(_ stylist: Stylist) async -> Bool {
-        if isAdmin {
-            await insertOrSaveStylist(stylist)
-            return true
-        }
-
         guard gateway.isConfigured, currentProfile != nil else {
             statusMessage = "請先登入正式帳號，才可以提交髮型師申請"
             return false
@@ -462,8 +457,9 @@ final class HairmapStore {
 
         do {
             try await gateway.submitStylistApplication(stylist)
-            statusMessage = "髮型師檔案已提交，待平台審批後才會公開"
             await refreshCatalog()
+            statusMessage = "髮型師檔案已建立完成，請等候平台審批"
+            return true
         } catch {
             statusMessage = "髮型師申請提交失敗，請稍後再試"
         }
@@ -472,11 +468,6 @@ final class HairmapStore {
 
     @discardableResult
     func submitSalonApplication(_ salon: Salon, works: [PortfolioWork]) async -> Bool {
-        if isAdmin {
-            await saveSalon(salon, works: works)
-            return true
-        }
-
         guard gateway.isConfigured, currentProfile != nil else {
             statusMessage = "請先登入正式帳號，才可以提交沙龍申請"
             return false
@@ -484,8 +475,9 @@ final class HairmapStore {
 
         do {
             try await gateway.submitSalonApplication(salon, works: works)
-            statusMessage = "沙龍檔案已提交，待平台審批後才會公開"
             await refreshCatalog()
+            statusMessage = "沙龍檔案已建立完成，請等候平台審批"
+            return true
         } catch {
             statusMessage = "沙龍申請提交失敗，請稍後再試"
         }
@@ -532,8 +524,8 @@ final class HairmapStore {
         do {
             try await gateway.approveStylistApplication(application)
             pendingStylistApplications.removeAll { $0.id == application.id }
-            statusMessage = "\(application.name) 已批准並公開到 Supabase"
             await refreshCatalog()
+            statusMessage = "\(application.name) 已批准並公開到 Supabase"
         } catch {
             statusMessage = "髮型師申請批准失敗"
         }
@@ -553,8 +545,8 @@ final class HairmapStore {
         do {
             try await gateway.approveSalonApplication(application)
             pendingSalonApplications.removeAll { $0.id == application.id }
-            statusMessage = "\(application.name) 已批准並公開到 Supabase"
             await refreshCatalog()
+            statusMessage = "\(application.name) 已批准並公開到 Supabase"
         } catch {
             statusMessage = "沙龍申請批准失敗"
         }

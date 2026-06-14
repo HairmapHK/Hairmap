@@ -1811,6 +1811,7 @@ struct UserProfileView: View {
     @Environment(HairmapStore.self) private var store
     @State private var panel: ProfilePanel = .bookings
     @State private var bookingScope: ProfileBookingScope = .active
+    @State private var submissionNotice: ProfileSubmissionNotice?
 
     @State private var stylistName = ""
     @State private var stylistTitle = ""
@@ -1944,6 +1945,13 @@ struct UserProfileView: View {
             .background(Color(red: 0.985, green: 0.985, blue: 0.98).ignoresSafeArea())
         }
         .premiumBackground()
+        .alert(item: $submissionNotice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("知道了"))
+            )
+        }
     }
 
     private func addStylistExtraService() {
@@ -2044,9 +2052,12 @@ struct UserProfileView: View {
             services: services.isEmpty ? SeedData.services.filter { $0.stylistID == "master-leo" } : services,
             reviews: []
         )
-        let didPublishImmediately = await store.submitStylistApplication(stylist)
-        if didPublishImmediately {
-            store.selectedStylistID = stylist.id
+        let didSubmitForReview = await store.submitStylistApplication(stylist)
+        if didSubmitForReview {
+            submissionNotice = ProfileSubmissionNotice(
+                title: "檔案已建立完成",
+                message: "髮型師檔案已送出，請等候平台審批。審批通過後會公開到 Hairmap。"
+            )
         }
     }
 
@@ -2099,11 +2110,20 @@ struct UserProfileView: View {
             Array(salonPortfolio.prefix(10)),
             folder: "salon-portfolio"
         )
-        let didPublishImmediately = await store.submitSalonApplication(salon, works: salonPortfolio)
-        if didPublishImmediately {
-            store.selectedSalonID = salon.id
+        let didSubmitForReview = await store.submitSalonApplication(salon, works: salonPortfolio)
+        if didSubmitForReview {
+            submissionNotice = ProfileSubmissionNotice(
+                title: "檔案已建立完成",
+                message: "沙龍檔案已送出，請等候平台審批。審批通過後會公開到 Hairmap。"
+            )
         }
     }
+}
+
+private struct ProfileSubmissionNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }
 
 private enum ProfilePanel: String, CaseIterable, Identifiable {

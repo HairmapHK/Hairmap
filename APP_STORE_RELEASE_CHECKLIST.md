@@ -1,5 +1,14 @@
 # Hairmap App Store Release Checklist
 
+## Current Status - 2026-06-15
+
+- Local simulator build launches successfully on iPhone 17 Pro.
+- User has confirmed the current in-app screens are suitable to continue App Store preparation.
+- Screenshot capture is deferred to the user; no App Store screenshot files are stored in this repo right now.
+- `tools/release_preflight.sh` passes for Hairmap `1.0 (1)` with production configuration.
+- TestFlight upload is still blocked until Apple Developer Program membership/App Store Connect signing is available.
+- Recent product changes in this preparation checkpoint include the admin approval flow fix and commercialization memory document.
+
 ## App Identity
 
 - Bundle ID: `com.involution.Hairmap`
@@ -21,7 +30,7 @@
 - Enable GitHub Pages from `/docs` or replace the draft URLs with your own domain.
 - Complete age rating questionnaire.
 - Prepare review notes with a test customer account and a test stylist account.
-- Prepare screenshots for iPhone 6.9-inch, iPhone 6.5-inch/6.7-inch if requested, and iPad if the app remains universal.
+- Prepare screenshots for iPhone 6.9-inch first. Add other iPhone sizes only if App Store Connect requests them. No iPad screenshots are needed while the app remains iPhone-only.
 
 ## Privacy
 

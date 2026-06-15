@@ -3,40 +3,41 @@
 ## Current Build State
 
 - Bundle ID: `com.involution.Hairmap`
-- Team ID: `MXV8VYWG8W`
+- Team ID: `9AY6FR5JDC`
 - Version: `1.0`
 - Build: `1`
 - Minimum iOS: `17.0`
 - Device family: iPhone only
 - Supabase project currently configured: `https://khmeqbcevlkwvgehvuni.supabase.co`
+- Upload status: `Hairmap 1.0 (1)` uploaded to App Store Connect on 2026-06-16.
 
 ## Verified Locally
 
 - Release simulator build passes.
 - Unsigned generic iOS archive passes.
+- Xcode archive and App Store Connect upload succeeded for `Hairmap 1.0 (1)`.
 - App bundle includes `PrivacyInfo.xcprivacy`.
-- The remaining blocker for TestFlight upload is Apple provisioning/signing.
 
-## Signing Blocker Found
+## Current TestFlight Status
 
-Command-line archive cannot create a signed archive yet because Xcode cannot find a provisioning profile for:
+The first TestFlight candidate is uploaded. App Store Connect may take several minutes to process the build before it appears under:
 
 ```text
-com.involution.Hairmap
+App Store Connect > Hairmap > TestFlight > iOS Builds
 ```
 
-The automatic provisioning retry also reported that the team has no registered devices for a development profile. For TestFlight, use an App Store / Apple Distribution signing flow rather than a development profile.
+If App Store Connect asks for export compliance, this app currently uses standard HTTPS/Supabase networking and no custom encryption. Answer according to Apple's current prompt and mark it as exempt/non-custom encryption where applicable.
 
-## Recommended Upload Path
+## Completed Upload Path
 
 1. Open `/Users/kelvinfung398/Documents/Hairmap/Hairmap.xcodeproj` in Xcode.
 2. Select target `Hairmap`.
 3. Go to `Signing & Capabilities`.
 4. Confirm:
-   - Team: `MXV8VYWG8W`
+   - Team: `9AY6FR5JDC`
    - Bundle Identifier: `com.involution.Hairmap`
    - Automatically manage signing: enabled
-5. In App Store Connect, create the app record if it does not exist:
+5. In App Store Connect, create the app record:
    - Name: `Hairmap`
    - Bundle ID: `com.involution.Hairmap`
    - Platform: iOS
@@ -44,7 +45,21 @@ The automatic provisioning retry also reported that the team has no registered d
 7. Run `Product > Archive`.
 8. When Organizer opens, choose `Distribute App`.
 9. Select `App Store Connect`.
-10. Upload to TestFlight.
+10. Upload to TestFlight. Completed for build `1`.
+
+## Next App Store Connect Steps
+
+1. Wait until build `1.0 (1)` finishes processing in App Store Connect.
+2. Add yourself as an Internal Tester and install Hairmap from TestFlight on a real iPhone.
+3. Run the internal smoke test:
+   - Customer Google/Apple/email sign in
+   - Customer booking creation
+   - Stylist dashboard receives the booking
+   - Customer/stylist chat message round trip
+   - Photo upload flows for inspiration, stylist profile, and salon profile
+   - Admin approval flow for pending stylist/salon submissions
+4. After internal testing passes, prepare the External Testing public link and submit the build for Beta App Review.
+5. Keep external testing on staging data before the public Threads campaign.
 
 ## App Store Connect URLs
 

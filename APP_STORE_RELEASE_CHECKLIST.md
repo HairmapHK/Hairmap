@@ -1,17 +1,20 @@
 # Hairmap App Store Release Checklist
 
-## Current Status - 2026-06-15
+## Current Status - 2026-06-16
 
 - Local simulator build launches successfully on iPhone 17 Pro.
 - User has confirmed the current in-app screens are suitable to continue App Store preparation.
 - Screenshot capture is deferred to the user; no App Store screenshot files are stored in this repo right now.
 - `tools/release_preflight.sh` passes for Hairmap `1.0 (1)` with production configuration.
-- TestFlight upload is still blocked until Apple Developer Program membership/App Store Connect signing is available.
-- Recent product changes in this preparation checkpoint include the admin approval flow fix and commercialization memory document.
+- `Hairmap 1.0 (1)` has been archived and uploaded to App Store Connect.
+- Current next step: wait for TestFlight build processing, add an Internal Tester, and install on a real iPhone.
+- External TestFlight/public link should wait until internal smoke testing passes and Beta App Review is approved.
+- Recent product changes in this preparation checkpoint include the admin approval flow fix, commercialization memory document, and TestFlight upload readiness notes.
 
 ## App Identity
 
 - Bundle ID: `com.involution.Hairmap`
+- Apple Team ID: `9AY6FR5JDC`
 - Display name: `Hairmap`
 - Version: `1.0`
 - Build: `1`
@@ -21,7 +24,7 @@
 
 ## Apple Developer / App Store Connect
 
-- Create the App Store Connect app record for `Hairmap`.
+- Create the App Store Connect app record for `Hairmap`. Completed for bundle `com.involution.Hairmap`.
 - Confirm the bundle ID has Sign in with Apple enabled.
 - Add Google OAuth redirect settings for Supabase if Google login is enabled.
 - Add a support URL.
@@ -55,7 +58,7 @@
 - Run a Release build from Xcode.
 - Archive with a physical or generic iOS device destination.
 - Validate the archive in Xcode Organizer.
-- Upload to TestFlight.
+- Upload to TestFlight. Completed for `Hairmap 1.0 (1)`.
 - Run a smoke test on TestFlight:
   - Customer Google/Apple/email sign in
   - Customer booking

@@ -5,11 +5,12 @@
 - Bundle ID: `com.involution.Hairmap`
 - Team ID: `9AY6FR5JDC`
 - Version: `1.0`
-- Build: `1`
+- Current local build: `2`
 - Minimum iOS: `17.0`
 - Device family: iPhone only
 - Supabase project currently configured: `https://khmeqbcevlkwvgehvuni.supabase.co`
 - Upload status: `Hairmap 1.0 (1)` uploaded to App Store Connect on 2026-06-16.
+- Next upload target: `Hairmap 1.0 (2)` with the customer-side light color scheme contrast fix.
 
 ## Verified Locally
 
@@ -17,10 +18,11 @@
 - Unsigned generic iOS archive passes.
 - Xcode archive and App Store Connect upload succeeded for `Hairmap 1.0 (1)`.
 - App bundle includes `PrivacyInfo.xcprivacy`.
+- Customer-facing screens now force the light color scheme so secondary labels remain legible on real devices using Dark Mode.
 
 ## Current TestFlight Status
 
-The first TestFlight candidate is uploaded. App Store Connect may take several minutes to process the build before it appears under:
+The first TestFlight candidate is uploaded. A follow-up build `1.0 (2)` is prepared locally for the TestFlight contrast fix. App Store Connect may take several minutes to process uploaded builds before they appear under:
 
 ```text
 App Store Connect > Hairmap > TestFlight > iOS Builds
@@ -49,7 +51,7 @@ If App Store Connect asks for export compliance, this app currently uses standar
 
 ## Next App Store Connect Steps
 
-1. Wait until build `1.0 (1)` finishes processing in App Store Connect.
+1. Upload build `1.0 (2)` after the contrast-fix archive is ready.
 2. Add yourself as an Internal Tester and install Hairmap from TestFlight on a real iPhone.
 3. Run the internal smoke test:
    - Customer Google/Apple/email sign in

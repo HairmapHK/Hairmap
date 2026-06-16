@@ -40,6 +40,7 @@ struct RootView: View {
             }
         }
         .animation(.snappy(duration: 0.32), value: store.currentProfile?.role)
+        .preferredColorScheme(.light)
         .sheet(isPresented: $store.isPasswordResetSheetPresented) {
             PasswordResetSheet()
                 .presentationDetents([.height(430)])
@@ -200,6 +201,7 @@ struct CustomerShellView: View {
                     .tag(CustomerTab.profile)
             }
             .tint(HMTheme.ink)
+            .preferredColorScheme(.light)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: CustomerRoute.self) { route in
                 switch route {

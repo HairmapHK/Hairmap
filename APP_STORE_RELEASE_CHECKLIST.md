@@ -7,7 +7,8 @@
 - Screenshot capture is deferred to the user; no App Store screenshot files are stored in this repo right now.
 - `tools/release_preflight.sh` passes for Hairmap `1.0 (1)` with production configuration.
 - `Hairmap 1.0 (1)` has been archived and uploaded to App Store Connect.
-- Current next step: wait for TestFlight build processing, add an Internal Tester, and install on a real iPhone.
+- Current local build is `1.0 (2)` for the customer-side Dark Mode/secondary text contrast fix.
+- Current next step: archive and upload `1.0 (2)`, then add an Internal Tester and install on a real iPhone.
 - External TestFlight/public link should wait until internal smoke testing passes and Beta App Review is approved.
 - Recent product changes in this preparation checkpoint include the admin approval flow fix, commercialization memory document, and TestFlight upload readiness notes.
 
@@ -17,7 +18,7 @@
 - Apple Team ID: `9AY6FR5JDC`
 - Display name: `Hairmap`
 - Version: `1.0`
-- Build: `1`
+- Build: `2`
 - Minimum iOS version: `17.0`
 - Primary category: Lifestyle
 - Secondary category: Business or Social Networking
@@ -58,7 +59,7 @@
 - Run a Release build from Xcode.
 - Archive with a physical or generic iOS device destination.
 - Validate the archive in Xcode Organizer.
-- Upload to TestFlight. Completed for `Hairmap 1.0 (1)`.
+- Upload to TestFlight. Completed for `Hairmap 1.0 (1)`; next upload target is `Hairmap 1.0 (2)`.
 - Run a smoke test on TestFlight:
   - Customer Google/Apple/email sign in
   - Customer booking

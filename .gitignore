@@ -14,4 +14,10 @@ admin-web/.env.staging
 admin-web/.env.production
 admin-web/node_modules/
 admin-web/dist/
+apply-web/.env
+apply-web/.env.local
+apply-web/.env.staging
+apply-web/.env.production
+apply-web/node_modules/
+apply-web/dist/
 .tmp-supabase-swift/

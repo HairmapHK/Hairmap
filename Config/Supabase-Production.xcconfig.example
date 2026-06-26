@@ -1,4 +1,4 @@
 APP_ENVIRONMENT = production
-SUPABASE_URL = https://YOUR_PRODUCTION_PROJECT_REF.supabase.co
-SUPABASE_PUBLISHABLE_KEY = sb_publishable_YOUR_PRODUCTION_KEY
+SUPABASE_URL = https://hdywclmsnfegaqtgndva.supabase.co
+SUPABASE_PUBLISHABLE_KEY = sb_publishable_VaeEu8GgtdA3M3wpCFGZQA_ducGwJF-
 SUPABASE_REDIRECT_URL = hairmap://auth-callback

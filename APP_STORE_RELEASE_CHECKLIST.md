@@ -1,16 +1,16 @@
 # Hairmap App Store Release Checklist
 
-## Current Status - 2026-06-16
+## Current Status - 2026-06-19
 
 - Local simulator build launches successfully on iPhone 17 Pro.
 - User has confirmed the current in-app screens are suitable to continue App Store preparation.
 - Screenshot capture is deferred to the user; no App Store screenshot files are stored in this repo right now.
-- `tools/release_preflight.sh` passes for Hairmap `1.0 (1)` with production configuration.
-- `Hairmap 1.0 (1)` has been archived and uploaded to App Store Connect.
-- Current local build is `1.0 (2)` for the customer-side Dark Mode/secondary text contrast fix.
-- Current next step: archive and upload `1.0 (2)`, then add an Internal Tester and install on a real iPhone.
-- External TestFlight/public link should wait until internal smoke testing passes and Beta App Review is approved.
-- Recent product changes in this preparation checkpoint include the admin approval flow fix, commercialization memory document, and TestFlight upload readiness notes.
+- `tools/release_preflight.sh` passes for Hairmap `1.0 (18)` with production configuration.
+- `Hairmap 1.0 (18)` has been archived and uploaded to App Store Connect/TestFlight.
+- Current local build is `1.0 (18)`.
+- Current launch direction: submit the app for App Review, set the approved version as an App Store pre-order, then collect and approve real stylist/salon data during the pre-order window.
+- External TestFlight/public link should remain controlled. The App Store pre-order page can be used for public demand capture while TestFlight stays focused on QA.
+- Recent product changes include admin inspiration management, account-scoped bookings/messages, image sizing fixes, realtime/UGC moderation work, stylist phone support, and email confirmation resend support.
 
 ## App Identity
 
@@ -18,7 +18,7 @@
 - Apple Team ID: `9AY6FR5JDC`
 - Display name: `Hairmap`
 - Version: `1.0`
-- Build: `2`
+- Build: `18`
 - Minimum iOS version: `17.0`
 - Primary category: Lifestyle
 - Secondary category: Business or Social Networking
@@ -59,7 +59,7 @@
 - Run a Release build from Xcode.
 - Archive with a physical or generic iOS device destination.
 - Validate the archive in Xcode Organizer.
-- Upload to TestFlight. Completed for `Hairmap 1.0 (1)`; next upload target is `Hairmap 1.0 (2)`.
+- Upload to TestFlight. Completed for `Hairmap 1.0 (18)`.
 - Run a smoke test on TestFlight:
   - Customer Google/Apple/email sign in
   - Customer booking
@@ -68,6 +68,17 @@
   - Inspiration upload/comment/photo preview
   - Profile booking management
   - Admin dashboard flows when available
+
+## Pre-Order Launch Plan
+
+- Submit `Hairmap 1.0 (18)` to App Review when screenshots, privacy labels, reviewer notes, support URL, and privacy policy URL are complete.
+- After approval, set the version as a pre-order instead of releasing immediately.
+- During the pre-order window, collect real stylist and salon data through the intake form and admin backend.
+- Do not use fictional/meme/demo records in the production App Store launch dataset.
+- Because catalog data is loaded from Supabase, approved stylist/salon records can be added during pre-order without uploading a new binary.
+- Upload a new build only if app code, UI, auth, entitlement, schema assumptions, or review-sensitive behavior changes.
+- Freeze code changes at least 3-5 days before planned launch unless a critical bug requires a new build.
+- Final release gate: clean test data, approve real profiles, verify admin account, smoke test TestFlight, then release the pre-order version.
 
 ## Current Apple References
 

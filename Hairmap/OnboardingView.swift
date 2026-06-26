@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 private enum OnboardingMode {
@@ -10,6 +11,7 @@ private enum OnboardingMode {
 
 struct OnboardingView: View {
     @Environment(HairmapStore.self) private var store
+    @Environment(\.openURL) private var openURL
     @State private var role: UserRole = .customer
     @State private var mode: OnboardingMode = .welcome
     @State private var displayName = ""
@@ -21,6 +23,10 @@ struct OnboardingView: View {
     @State private var isPasswordVisible = false
     @State private var isSubmitting = false
     @State private var showAuthStatus = false
+    @State private var hasAcceptedTerms = false
+
+    private static let termsURL = URL(string: "https://kelvinfung398398-sudo.github.io/Hairmap/terms.html")!
+    private static let privacyURL = URL(string: "https://kelvinfung398398-sudo.github.io/Hairmap/privacy.html")!
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -190,16 +196,8 @@ struct OnboardingView: View {
             }
 
             dividerText("或透過以下方式繼續")
-
-            HStack(spacing: 12) {
-                socialButton(systemImage: "apple.logo", accessibilityLabel: "使用 Apple 登入") {
-                    submitSocial(.apple)
-                }
-                socialButton(systemImage: "g.circle", accessibilityLabel: "使用 Google 登入") {
-                    submitSocial(.google)
-                }
-            }
-            .padding(.bottom, 4)
+            termsAgreementRow
+            socialLoginStack(googleTitle: "使用 Google 登入")
 
             footerLinks
         }
@@ -219,7 +217,9 @@ struct OnboardingView: View {
                 passwordField(label: "確認密碼", placeholder: "請再次輸入密碼二次確認", text: $confirmPassword)
             }
 
-            blackButton(isSubmitting ? "註冊中" : "註冊帳號並寄出確認信") {
+            termsAgreementRow
+
+            blackButton(isSubmitting ? "註冊中" : "註冊帳號並寄出確認信", disabled: !hasAcceptedTerms) {
                 submitRegister(
                     role: .customer,
                     displayName: displayName.isEmpty ? "Hairmap 顧客" : displayName,
@@ -228,6 +228,8 @@ struct OnboardingView: View {
                     confirmPassword: confirmPassword
                 )
             }
+
+            confirmationResendBlock(email: email)
 
             Button("已經有帳號？跳轉登入") {
                 mode = .login
@@ -252,14 +254,14 @@ struct OnboardingView: View {
                     mode = .login
                 }
 
-                amberButton("快速體驗登入（預定設 Master Leo）") {
-                    quickStart(role: .stylist)
-                }
-
                 lightButton("註冊創立髮型師帳號") {
                     mode = .stylistRegister
                 }
             }
+
+            dividerText("或透過以下方式登入工作台")
+            termsAgreementRow
+            socialLoginStack(googleTitle: "髮型師使用 Google 登入")
 
             footerLinks
         }
@@ -283,7 +285,9 @@ struct OnboardingView: View {
                 )
             }
 
-            blackButton(isSubmitting ? "登入中" : "使用密碼登入") {
+            termsAgreementRow
+
+            blackButton(isSubmitting ? "登入中" : "使用密碼登入", disabled: !hasAcceptedTerms) {
                 submitLogin(
                     role: role,
                     email: email,
@@ -297,6 +301,9 @@ struct OnboardingView: View {
             .font(.footnote.weight(.bold))
             .foregroundStyle(Color(red: 0.32, green: 0.36, blue: 0.42))
             .padding(.top, 10)
+
+            dividerText(role == .stylist ? "或使用社交帳號登入工作台" : "或透過以下方式繼續")
+            socialLoginStack(googleTitle: role == .stylist ? "髮型師使用 Google 登入" : "使用 Google 登入")
 
             footerLinks
         }
@@ -317,15 +324,19 @@ struct OnboardingView: View {
                 passwordField(label: "確認密碼", placeholder: "請再次輸入密碼二次確認", text: $confirmPassword)
             }
 
-            blackButton(isSubmitting ? "註冊中" : "註冊帳號並寄出確認信") {
+            termsAgreementRow
+
+            blackButton(isSubmitting ? "註冊中" : "註冊帳號並寄出確認信", disabled: !hasAcceptedTerms) {
                 submitRegister(
                     role: .stylist,
-                    displayName: stylistName.isEmpty ? "Master Leo" : stylistName,
+                    displayName: stylistName.isEmpty ? "待建立髮型師" : stylistName,
                     email: email,
                     password: password,
                     confirmPassword: confirmPassword
                 )
             }
+
+            confirmationResendBlock(email: email)
 
             Button("已經有帳號？跳轉登入") {
                 mode = .login
@@ -445,7 +456,7 @@ struct OnboardingView: View {
         }
     }
 
-    private func blackButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func blackButton(_ title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 17, weight: .black))
@@ -458,7 +469,8 @@ struct OnboardingView: View {
                 .shadow(color: .black.opacity(0.18), radius: 12, y: 8)
         }
         .buttonStyle(PressableButtonStyle())
-        .disabled(isSubmitting)
+        .disabled(isSubmitting || disabled)
+        .opacity(disabled ? 0.58 : 1)
     }
 
     private func lightButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -496,19 +508,51 @@ struct OnboardingView: View {
         .disabled(isSubmitting)
     }
 
-    private func socialButton(systemImage: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
+    private var appleSocialButton: some View {
+        SignInWithAppleButton(.signIn) { request in
+            request.requestedScopes = [.email, .fullName]
+        } onCompletion: { result in
+            handleAppleAuthorization(result)
+        }
+        .signInWithAppleButtonStyle(.white)
+        .frame(maxWidth: .infinity)
+        .frame(height: 58)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.black.opacity(0.11), lineWidth: 1))
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("使用 Apple 登入")
+        .disabled(isSubmitting || !hasAcceptedTerms)
+        .opacity(hasAcceptedTerms ? 1 : 0.58)
+    }
+
+    private func socialLoginStack(googleTitle: String) -> some View {
+        VStack(spacing: 12) {
+            appleSocialButton
+            googleSocialButton(title: googleTitle) {
+                submitSocial(.google)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func googleSocialButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(HMTheme.ink)
-                .frame(maxWidth: .infinity)
-                .frame(height: 58)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(.black.opacity(0.11), lineWidth: 1))
+            HStack(spacing: 10) {
+                Image(systemName: "g.circle")
+                    .font(.system(size: 20, weight: .bold))
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+            }
+            .foregroundStyle(HMTheme.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.black.opacity(0.11), lineWidth: 1))
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(accessibilityLabel)
-        .disabled(isSubmitting)
+        .accessibilityLabel(title)
+        .disabled(isSubmitting || !hasAcceptedTerms)
+        .opacity(hasAcceptedTerms ? 1 : 0.58)
     }
 
     private func dividerText(_ text: String) -> some View {
@@ -534,6 +578,63 @@ struct OnboardingView: View {
             .padding(.top, 6)
     }
 
+    private var termsAgreementRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                hasAcceptedTerms.toggle()
+            } label: {
+                Image(systemName: hasAcceptedTerms ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(hasAcceptedTerms ? .black : Color(red: 0.48, green: 0.52, blue: 0.6))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityLabel(hasAcceptedTerms ? "已同意服務條款" : "同意服務條款")
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("我已閱讀並同意 Hairmap 服務條款 / EULA 與隱私權政策")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(red: 0.22, green: 0.26, blue: 0.32))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button("服務條款 / EULA") {
+                        openURL(Self.termsURL)
+                    }
+                    Button("隱私權政策") {
+                        openURL(Self.privacyURL)
+                    }
+                }
+                .font(.system(size: 11, weight: .black))
+                .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 0.97, green: 0.975, blue: 0.985), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.1), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func confirmationResendBlock(email: String) -> some View {
+        if !store.pendingConfirmationEmail.isEmpty {
+            VStack(spacing: 10) {
+                Text("未收到確認信？請先檢查垃圾郵件，或 60 秒後重新寄出。")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.48, green: 0.52, blue: 0.6))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+
+                lightButton(isSubmitting ? "寄送中" : "重新寄出確認信") {
+                    submitResendConfirmation(email: email)
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
     @ViewBuilder
     private var statusBanner: some View {
         if shouldShowStatus && showAuthStatus {
@@ -552,7 +653,7 @@ struct OnboardingView: View {
     }
 
     private var shouldShowStatus: Bool {
-        mode == .welcome || mode == .login || mode == .customerRegister || mode == .stylistRegister
+        mode == .welcome || mode == .stylistPortal || mode == .login || mode == .customerRegister || mode == .stylistRegister
     }
 
     private var showsBackButton: Bool {
@@ -587,14 +688,16 @@ struct OnboardingView: View {
     }
 
     private func quickStart(role: UserRole) {
+        guard role == .customer else { return }
         store.startLocal(
-            displayName: role == .stylist ? "Master Leo" : "Alex Chen",
+            displayName: "訪客",
             role: role
         )
     }
 
     private func submitRegister(role: UserRole, displayName: String, email: String, password: String, confirmPassword: String) {
         showAuthStatus = true
+        guard guardTermsAccepted() else { return }
         guard password == confirmPassword else {
             store.statusMessage = "兩次密碼不一致，請重新輸入"
             return
@@ -607,8 +710,18 @@ struct OnboardingView: View {
         }
     }
 
+    private func submitResendConfirmation(email: String) {
+        showAuthStatus = true
+        Task {
+            isSubmitting = true
+            await store.resendConfirmationEmail(email: email.isEmpty ? nil : email)
+            isSubmitting = false
+        }
+    }
+
     private func submitLogin(role: UserRole, email: String, password: String) {
         showAuthStatus = true
+        guard guardTermsAccepted() else { return }
         Task {
             isSubmitting = true
             await store.login(email: email, password: password, role: role)
@@ -627,10 +740,58 @@ struct OnboardingView: View {
 
     private func submitSocial(_ provider: SocialAuthProvider) {
         showAuthStatus = true
+        guard guardTermsAccepted() else { return }
         Task {
             isSubmitting = true
-            await store.loginWithSocial(provider, role: .customer)
+            await store.loginWithSocial(provider, role: role)
             isSubmitting = false
         }
+    }
+
+    private func handleAppleAuthorization(_ result: Result<ASAuthorization, Error>) {
+        showAuthStatus = true
+        guard guardTermsAccepted() else { return }
+
+        switch result {
+        case .failure(let error):
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                store.statusMessage = "Apple 登入已取消"
+            } else {
+                store.statusMessage = "Apple 登入未能完成，請稍後再試"
+            }
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                store.statusMessage = "Apple 登入憑證格式不正確"
+                return
+            }
+            guard
+                let tokenData = credential.identityToken,
+                let idToken = String(data: tokenData, encoding: .utf8)
+            else {
+                store.statusMessage = "Apple 登入未能取得身份憑證"
+                return
+            }
+
+            let fullName = credential.fullName?.formatted()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            Task {
+                isSubmitting = true
+                await store.loginWithAppleIDToken(
+                    idToken,
+                    fullName: fullName?.isEmpty == false ? fullName : nil,
+                    role: role
+                )
+                isSubmitting = false
+            }
+        }
+    }
+
+    private func guardTermsAccepted() -> Bool {
+        guard hasAcceptedTerms else {
+            store.statusMessage = "請先閱讀並同意服務條款 / EULA 與隱私權政策"
+            return false
+        }
+        return true
     }
 }

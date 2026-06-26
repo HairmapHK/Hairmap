@@ -7,10 +7,10 @@ struct BookingView: View {
     @State private var stage: BookingStage = .selectStylist
     @State private var selectedStylistID = "master-leo"
     @State private var selectedServiceID = ""
-    @State private var selectedDate = BookingDate.june2026(day: 9)
+    @State private var selectedDate = BookingDate.today()
     @State private var selectedTime = "10:00"
-    @State private var clientName = "Alex Chen"
-    @State private var clientPhone = "+852 6123 4567"
+    @State private var clientName = ""
+    @State private var clientPhone = ""
     @State private var searchText = ""
     @State private var selectedSpecialty = "全部專長"
     @State private var showMonthGrid = false
@@ -114,6 +114,11 @@ struct BookingView: View {
             } else {
                 selectedServiceID = stylist.services.first?.id ?? ""
             }
+            selectedTime = firstAvailableTime() ?? selectedTime
+        }
+        .task {
+            await store.refreshCatalog()
+            selectedTime = firstAvailableTime() ?? selectedTime
         }
         .animation(.snappy(duration: 0.28), value: stage)
         .animation(.snappy(duration: 0.22), value: successBooking)
@@ -125,6 +130,7 @@ struct BookingView: View {
         selectedServiceID = item.services.first?.id ?? ""
         store.selectedStylistID = item.id
         store.selectedService = item.services.first
+        selectedTime = firstAvailableTime() ?? selectedTime
         stage = .schedule
     }
 
@@ -147,6 +153,15 @@ struct BookingView: View {
 
     private func submit() async {
         guard !isSubmitting else { return }
+        let cleanName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhone = clientPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneDigits = cleanPhone.filter(\.isNumber)
+        guard !cleanName.isEmpty, phoneDigits.count >= 8 else {
+            store.statusMessage = "請先填寫姓名及有效聯絡電話"
+            return
+        }
+        clientName = cleanName
+        clientPhone = cleanPhone
         isSubmitting = true
         defer { isSubmitting = false }
         let endTime = addMinutes(selectedTime, service.duration)
@@ -179,16 +194,29 @@ struct BookingView: View {
     }
 
     private func isDateFull(_ date: Date) -> Bool {
-        [16, 22, 27].contains(Calendar.hairmap.component(.day, from: date))
+        BookingDate.slotGroups
+            .flatMap(\.times)
+            .allSatisfy { isSlotFull($0, on: date) }
     }
 
     private func isSlotFull(_ time: String) -> Bool {
-        store.isBlocked(stylistID: selectedStylistID, date: selectedDateKey, time: time) ||
-            ["09:00", "11:00", "17:00"].contains(time)
+        isSlotFull(time, on: selectedDate)
+    }
+
+    private func isSlotFull(_ time: String, on date: Date) -> Bool {
+        let dateKey = DateFormatter.hmDate.string(from: date)
+        let hasActiveBooking = store.bookings.contains { booking in
+            booking.stylistID == selectedStylistID &&
+                booking.bookingDate == dateKey &&
+                booking.startTime.hmTimeKey == time.hmTimeKey &&
+                booking.status != .cancelled &&
+                booking.status != .completed
+        }
+        return store.isBlocked(stylistID: selectedStylistID, date: dateKey, time: time) || hasActiveBooking
     }
 
     private func isSlotNearlyFull(_ time: String) -> Bool {
-        ["10:00", "18:30"].contains(time)
+        false
     }
 
     private func firstAvailableTime() -> String? {
@@ -223,18 +251,39 @@ private enum BookingDate {
         BookingSlotGroup(title: "晚間時段", range: "17:00 - 21:30", icon: "moon.stars.fill", times: ["17:30", "18:30", "19:30", "20:00", "20:30"])
     ]
 
-    static func june2026(day: Int) -> Date {
-        Calendar.hairmap.date(from: DateComponents(year: 2026, month: 6, day: day)) ?? Date()
+    static func today() -> Date {
+        Calendar.hairmap.startOfDay(for: Date())
     }
 
     static func quickDays() -> [Date] {
-        (9...22).map { june2026(day: $0) }
+        (0..<14).compactMap { Calendar.hairmap.date(byAdding: .day, value: $0, to: today()) }
     }
 
-    static func monthDays() -> [Date?] {
-        let days = (1...30).map { Optional(june2026(day: $0)) }
-        let leadingBlanks = 0
-        return Array(repeating: nil, count: leadingBlanks) + days
+    static func monthDays(for selectedDate: Date) -> [Date?] {
+        let components = Calendar.hairmap.dateComponents([.year, .month], from: selectedDate)
+        guard let monthStart = Calendar.hairmap.date(from: components),
+              let range = Calendar.hairmap.range(of: .day, in: .month, for: monthStart) else {
+            return []
+        }
+        let firstWeekday = Calendar.hairmap.component(.weekday, from: monthStart)
+        let mondayBasedOffset = (firstWeekday + 5) % 7
+        var days = Array(repeating: Optional<Date>.none, count: mondayBasedOffset)
+        days.append(contentsOf: range.compactMap { day in
+            Calendar.hairmap.date(byAdding: .day, value: day - 1, to: monthStart)
+        })
+        let remainder = days.count % 7
+        if remainder != 0 {
+            days.append(contentsOf: Array(repeating: Optional<Date>.none, count: 7 - remainder))
+        }
+        return days
+    }
+
+    static func monthTitle(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_Hant_HK")
+        formatter.timeZone = TimeZone(identifier: "Asia/Hong_Kong")
+        formatter.dateFormat = "yyyy 年 M 月"
+        return formatter.string(from: date)
     }
 
     static func weekdayText(_ date: Date) -> String {
@@ -505,6 +554,12 @@ private struct BookingSchedulePage: View {
         stylist.services.first { $0.id == selectedServiceID } ?? stylist.services.first ?? SeedData.services[0]
     }
 
+    private var hasValidContact: Bool {
+        let cleanName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneDigits = clientPhone.filter(\.isNumber)
+        return !cleanName.isEmpty && phoneDigits.count >= 8
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             BookingTopBar(title: "選擇日期與完成預約", onBack: onBack)
@@ -532,6 +587,7 @@ private struct BookingSchedulePage: View {
                 date: selectedDate,
                 time: selectedTime,
                 isSubmitting: isSubmitting,
+                canSubmit: hasValidContact,
                 onSubmit: onSubmit
             )
         }
@@ -686,6 +742,22 @@ private struct BookingSchedulePage: View {
             .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(HMTheme.ink, lineWidth: 1.05))
 
+            if !hasValidContact {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption.weight(.black))
+                    Text("請先填寫預約人姓名及有效聯絡電話，才可以確認預約。")
+                        .font(.caption.weight(.bold))
+                        .lineSpacing(2)
+                }
+                .foregroundStyle(Color(red: 0.58, green: 0.37, blue: 0.05))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(red: 1.0, green: 0.972, blue: 0.86), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.amber.opacity(0.55), lineWidth: 1))
+            }
+
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "checkmark")
                     .font(.caption.weight(.black))
@@ -791,7 +863,7 @@ private struct BookingDateCell: View {
                     .font(.caption2.weight(.black))
                 Text("\(Calendar.hairmap.component(.day, from: date))")
                     .font(.title3.monospacedDigit().weight(.black))
-                Text(isFull ? "約滿" : "6月")
+                Text(isFull ? "約滿" : "\(Calendar.hairmap.component(.month, from: date))月")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(isSelected ? .white.opacity(0.72) : (isFull ? .red.opacity(0.7) : .secondary))
             }
@@ -815,7 +887,7 @@ private struct BookingMonthGrid: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("June 2026 Grid")
+                Text(BookingDate.monthTitle(selectedDate))
                     .font(.caption.weight(.black))
                     .foregroundStyle(HMTheme.ink)
                 Spacer()
@@ -834,7 +906,7 @@ private struct BookingMonthGrid: View {
             }
 
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(Array(BookingDate.monthDays().enumerated()), id: \.offset) { _, item in
+                ForEach(Array(BookingDate.monthDays(for: selectedDate).enumerated()), id: \.offset) { _, item in
                     if let date = item {
                         let selected = DateFormatter.hmDate.string(from: date) == DateFormatter.hmDate.string(from: selectedDate)
                         let full = isDateFull(date)
@@ -964,6 +1036,7 @@ private struct BookingFormField: View {
     let placeholder: String
     let systemImage: String
     var keyboard: UIKeyboardType = .default
+    var footer: String?
     @Binding var text: String
 
     var body: some View {
@@ -986,9 +1059,11 @@ private struct BookingFormField: View {
             .background(Color(red: 0.985, green: 0.985, blue: 0.98), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.ink, lineWidth: 1.05))
 
-            Text("√ 已根據您上次的預約記錄自動帶入資料")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(HMTheme.emerald)
+            if let footer {
+                Text(footer)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(HMTheme.emerald)
+            }
         }
     }
 }
@@ -999,6 +1074,7 @@ private struct BookingStickySummary: View {
     let date: Date
     let time: String
     let isSubmitting: Bool
+    let canSubmit: Bool
     let onSubmit: () -> Void
 
     var body: some View {
@@ -1042,7 +1118,7 @@ private struct BookingStickySummary: View {
             Button(action: onSubmit) {
                 HStack {
                     Spacer()
-                    Text(isSubmitting ? "確認中..." : "立即預約確認時間")
+                    Text(isSubmitting ? "確認中..." : (canSubmit ? "立即預約確認時間" : "請先填寫聯絡資料"))
                         .font(.callout.weight(.black))
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.black))
@@ -1050,11 +1126,11 @@ private struct BookingStickySummary: View {
                 }
                 .foregroundStyle(HMTheme.ink)
                 .frame(height: 52)
-                .background(HMTheme.amber, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .shadow(color: HMTheme.amber.opacity(0.28), radius: 10, y: 5)
+                .background(canSubmit ? HMTheme.amber : Color.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .shadow(color: (canSubmit ? HMTheme.amber.opacity(0.28) : .clear), radius: 10, y: 5)
             }
             .buttonStyle(PressableButtonStyle())
-            .disabled(isSubmitting)
+            .disabled(isSubmitting || !canSubmit)
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -1152,16 +1228,23 @@ struct ChatView: View {
     @State private var stage: ConsultationStage = .inbox
     @State private var selectedStylistID = "master-leo"
     @State private var draft = ""
-    @State private var unreadStylistIDs: Set<String> = ["sarah-lin"]
+    @State private var reportDraft: ReportDraft?
 
     private var thread: [ChatMessageItem] {
-        store.messages.filter { $0.stylistID == selectedStylistID }
+        store.customerMessages
+            .filter { $0.stylistID == selectedStylistID }
+            .sorted { $0.sortKey < $1.sortKey }
     }
 
     private var conversationStylists: [Stylist] {
-        let contactedIDs = Set(store.messages.map(\.stylistID))
-        let contacted = store.stylists.filter { contactedIDs.contains($0.id) }
-        return contacted.isEmpty ? store.stylists : contacted
+        let contactedIDs = Set(store.customerMessages.map(\.stylistID))
+        return store.stylists.filter { contactedIDs.contains($0.id) }.sorted {
+            (lastMessage(for: $0.id)?.sortKey ?? 0) > (lastMessage(for: $1.id)?.sortKey ?? 0)
+        }
+    }
+
+    private var unreadStylistIDs: Set<String> {
+        store.customerUnreadStylistIDs()
     }
 
     private var selectedStylist: Stylist {
@@ -1207,7 +1290,9 @@ struct ChatView: View {
                         onBack: { stage = .inbox },
                         onSelectStylist: openThread,
                         onSend: sendDraft,
+                        onPickPhoto: sendPhoto,
                         onRecall: recallMessage,
+                        onReport: reportMessage,
                         onToggleBlock: toggleBlock
                     )
                 }
@@ -1220,16 +1305,23 @@ struct ChatView: View {
         .animation(.snappy(duration: 0.28), value: stage)
         .animation(.snappy(duration: 0.24), value: unreadStylistIDs)
         .premiumBackground()
+        .sheet(item: $reportDraft) { draft in
+            ReportSheet(draft: draft) { reason, details in
+                store.submitReport(entityType: draft.entityType, entityID: draft.entityID, reason: reason, details: details)
+            }
+        }
     }
 
     private func lastMessage(for stylistID: String) -> ChatMessageItem? {
-        store.messages.last { $0.stylistID == stylistID }
+        store.customerMessages
+            .filter { $0.stylistID == stylistID }
+            .max { $0.sortKey < $1.sortKey }
     }
 
     private func openThread(_ stylistID: String) {
         selectedStylistID = stylistID
         store.selectedStylistID = stylistID
-        unreadStylistIDs.remove(stylistID)
+        store.markCustomerThreadRead(stylistID: stylistID)
         stage = .chat
     }
 
@@ -1241,9 +1333,31 @@ struct ChatView: View {
         Task { await store.sendMessage(text: sending, stylistID: selectedStylistID) }
     }
 
+    private func sendPhoto(_ item: PhotosPickerItem?) {
+        guard !isBlocked, let item else { return }
+        Task {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                await MainActor.run {
+                    store.statusMessage = "未能讀取照片，請重新選擇"
+                }
+                return
+            }
+            await store.sendChatPhoto(data: data, stylistID: selectedStylistID)
+        }
+    }
+
     private func recallMessage(_ message: ChatMessageItem) {
         guard message.senderRole == .customer else { return }
         store.recallMessage(id: message.id)
+    }
+
+    private func reportMessage(_ message: ChatMessageItem) {
+        reportDraft = ReportDraft(
+            entityType: .message,
+            entityID: message.id,
+            title: "檢舉聊天室訊息",
+            subtitle: message.text
+        )
     }
 
     private func toggleBlock() {
@@ -1397,7 +1511,7 @@ private struct ConsultationThreadCard: View {
                             .minimumScaleFactor(0.56)
                     }
 
-                    Text(message?.text ?? "尚未開始對話，點擊立即諮詢。")
+                    Text(message?.displayText ?? "尚未開始對話，點擊立即諮詢。")
                         .font(.system(size: 13, weight: isUnread ? .black : .semibold))
                         .foregroundStyle(HMTheme.ink)
                         .lineLimit(2)
@@ -1420,7 +1534,7 @@ private struct ConsultationThreadCard: View {
 
                 VStack(alignment: .trailing, spacing: 18) {
                     HStack(spacing: 7) {
-                        Text(message?.sentAt ?? "剛剛")
+                        Text(message?.displayTime ?? "剛剛")
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                             .foregroundStyle(.secondary)
                         if isUnread {
@@ -1457,6 +1571,7 @@ private struct ConsultationThreadCard: View {
 }
 
 private struct OneOnOneChatPage: View {
+    @Environment(\.openURL) private var openURL
     let contentWidth: CGFloat
     let stylists: [Stylist]
     let selectedStylistID: String
@@ -1468,11 +1583,13 @@ private struct OneOnOneChatPage: View {
     let onBack: () -> Void
     let onSelectStylist: (String) -> Void
     let onSend: () -> Void
+    let onPickPhoto: (PhotosPickerItem?) -> Void
     let onRecall: (ChatMessageItem) -> Void
+    let onReport: (ChatMessageItem) -> Void
     let onToggleBlock: () -> Void
 
     private var threadSignature: String {
-        messages.map { "\($0.id):\($0.text)" }.joined(separator: "|")
+        messages.map { "\($0.id):\($0.text):\($0.createdAt ?? "")" }.joined(separator: "|")
     }
 
     var body: some View {
@@ -1490,7 +1607,8 @@ private struct OneOnOneChatPage: View {
                                 message: message,
                                 stylist: stylist,
                                 contentWidth: contentWidth,
-                                onRecall: { onRecall(message) }
+                                onRecall: { onRecall(message) },
+                                onReport: { onReport(message) }
                             )
                             .id(message.id)
                         }
@@ -1516,6 +1634,7 @@ private struct OneOnOneChatPage: View {
             ChatInputBar(
                 draft: $draft,
                 isBlocked: isBlocked,
+                onPickPhoto: onPickPhoto,
                 onSend: onSend
             )
         }
@@ -1602,7 +1721,7 @@ private struct OneOnOneChatPage: View {
 
             Spacer()
 
-            Button {} label: {
+            Button(action: callStylist) {
                 Image(systemName: "phone")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(HMTheme.ink)
@@ -1610,6 +1729,8 @@ private struct OneOnOneChatPage: View {
                     .background(Color.white, in: Circle())
             }
             .buttonStyle(PressableButtonStyle())
+            .disabled(stylist.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(stylist.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.35 : 1)
 
             Menu {
                 Button(isBlocked ? "解除封鎖" : "封鎖此髮型師", role: isBlocked ? nil : .destructive) {
@@ -1669,6 +1790,16 @@ private struct OneOnOneChatPage: View {
             }
         }
     }
+
+    private func callStylist() {
+        let allowed = CharacterSet(charactersIn: "+0123456789")
+        let phone = stylist.phone.unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init)
+            .joined()
+        guard !phone.isEmpty, let url = URL(string: "tel://\(phone)") else { return }
+        openURL(url)
+    }
 }
 
 private struct ImmersiveMessageBubble: View {
@@ -1676,6 +1807,7 @@ private struct ImmersiveMessageBubble: View {
     let stylist: Stylist
     let contentWidth: CGFloat
     let onRecall: () -> Void
+    let onReport: () -> Void
 
     private var isMe: Bool { message.senderRole == .customer }
     private var isRecalled: Bool { message.text.hasPrefix("⚠️") }
@@ -1691,16 +1823,7 @@ private struct ImmersiveMessageBubble: View {
             }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 7) {
-                Text(message.text)
-                    .font(.callout.weight(isMe ? .bold : .medium))
-                    .lineSpacing(4)
-                    .foregroundStyle(textColor)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: contentWidth * 0.72, alignment: isMe ? .trailing : .leading)
-                    .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(strokeColor, lineWidth: isMe ? 0 : 1))
+                messageContent
                     .contextMenu {
                         if isMe && !isRecalled {
                             Button(role: .destructive) {
@@ -1709,9 +1832,14 @@ private struct ImmersiveMessageBubble: View {
                                 Label("撒回 (Recall)", systemImage: "arrow.uturn.backward.circle")
                             }
                         }
+                        Button(role: .destructive) {
+                            onReport()
+                        } label: {
+                            Label("檢舉訊息", systemImage: "exclamationmark.bubble")
+                        }
                     }
 
-                Text(message.sentAt)
+                Text(message.displayTime)
                     .font(.caption2.monospacedDigit().weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -1721,6 +1849,26 @@ private struct ImmersiveMessageBubble: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: isMe ? .trailing : .leading)
+    }
+
+    @ViewBuilder
+    private var messageContent: some View {
+        if let photoURL = message.photoURL {
+            RemoteImage(urlString: photoURL, height: 188, cornerRadius: 14)
+                .frame(width: min(contentWidth * 0.72, 260))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(strokeColor, lineWidth: isMe ? 0 : 1))
+        } else {
+            Text(message.displayText)
+                .font(.callout.weight(isMe ? .bold : .medium))
+                .lineSpacing(4)
+                .foregroundStyle(textColor)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: contentWidth * 0.72, alignment: isMe ? .trailing : .leading)
+                .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(strokeColor, lineWidth: isMe ? 0 : 1))
+        }
     }
 
     private var textColor: Color {
@@ -1741,11 +1889,13 @@ private struct ImmersiveMessageBubble: View {
 private struct ChatInputBar: View {
     @Binding var draft: String
     let isBlocked: Bool
+    let onPickPhoto: (PhotosPickerItem?) -> Void
     let onSend: () -> Void
+    @State private var selectedPhotoItem: PhotosPickerItem?
 
     var body: some View {
         HStack(spacing: 10) {
-            Button {} label: {
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                 Image(systemName: isBlocked ? "lock.fill" : "camera")
                     .font(.system(size: 18, weight: .black))
                     .foregroundStyle(isBlocked ? .secondary : HMTheme.ink)
@@ -1778,6 +1928,10 @@ private struct ChatInputBar: View {
         .padding(.vertical, 12)
         .background(Color.white)
         .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
+        .onChange(of: selectedPhotoItem) { _, item in
+            onPickPhoto(item)
+            selectedPhotoItem = nil
+        }
     }
 }
 
@@ -1793,12 +1947,17 @@ struct MessageBubble: View {
                 Text(message.senderName)
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
-                Text(message.text)
-                    .font(.callout)
-                    .foregroundStyle(isMe ? .white : HMTheme.ink)
-                    .padding(12)
-                    .background(isMe ? HMTheme.ink : Color.white, in: RoundedRectangle(cornerRadius: 8))
-                Text(message.sentAt)
+                if let photoURL = message.photoURL {
+                    RemoteImage(urlString: photoURL, height: 160, cornerRadius: 8)
+                        .frame(width: 220)
+                } else {
+                    Text(message.displayText)
+                        .font(.callout)
+                        .foregroundStyle(isMe ? .white : HMTheme.ink)
+                        .padding(12)
+                        .background(isMe ? HMTheme.ink : Color.white, in: RoundedRectangle(cornerRadius: 8))
+                }
+                Text(message.displayTime)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -1809,12 +1968,13 @@ struct MessageBubble: View {
 
 struct UserProfileView: View {
     @Environment(HairmapStore.self) private var store
-    @State private var panel: ProfilePanel = .bookings
+    @State private var panel: ProfilePanel = .account
     @State private var bookingScope: ProfileBookingScope = .active
     @State private var submissionNotice: ProfileSubmissionNotice?
 
     @State private var stylistName = ""
     @State private var stylistTitle = ""
+    @State private var stylistPhone = ""
     @State private var stylistBio = ""
     @State private var stylistExperience = "5年資歷"
     @State private var stylistLanguages = "中 / 粵 / 英"
@@ -1829,7 +1989,7 @@ struct UserProfileView: View {
     @State private var customStylistWorkName = ""
     @State private var customStylistWorkURL = ""
     @State private var uploadedStylistWorkURLs: [String] = []
-    @State private var selectedStylistSamples: Set<String> = ["profile_work_1", "profile_work_2"]
+    @State private var selectedStylistSamples: Set<String> = []
 
     @State private var salonName = ""
     @State private var salonAddress = ""
@@ -1838,11 +1998,11 @@ struct UserProfileView: View {
     @State private var salonStartPrice = "480"
     @State private var salonTags: Set<String> = ["歐美染髮", "手刷染", "韓式燙髮"]
     @State private var salonFeatureDrafts = ProfileSeed.salonFeatures
-    @State private var assignedStylistIDs: Set<String> = ["master-leo"]
+    @State private var assignedStylistIDs: Set<String> = []
     @State private var customSalonWorkName = ""
     @State private var customSalonWorkURL = ""
     @State private var uploadedSalonWorkURLs: [String] = []
-    @State private var selectedSalonSamples: Set<String> = ["salon_work_1", "salon_work_2"]
+    @State private var selectedSalonSamples: Set<String> = []
     @State private var salonPackageName = ""
     @State private var salonPackagePrice = ""
     @State private var salonPackages = ProfileSeed.salonPackages
@@ -1859,11 +2019,11 @@ struct UserProfileView: View {
     }
 
     private var activeBookings: [Appointment] {
-        store.bookings.filter { $0.status != .completed && $0.status != .cancelled }
+        store.customerBookings.filter { $0.status != .completed && $0.status != .cancelled }
     }
 
     private var historyBookings: [Appointment] {
-        store.bookings.filter { $0.status == .completed || $0.status == .cancelled }
+        store.customerBookings.filter { $0.status == .completed || $0.status == .cancelled }
     }
 
     var body: some View {
@@ -1879,6 +2039,8 @@ struct UserProfileView: View {
 
                     Group {
                         switch panel {
+                        case .account:
+                            CustomerProfilePanel()
                         case .bookings:
                             ProfileBookingsPanel(
                                 scope: $bookingScope,
@@ -1890,6 +2052,7 @@ struct UserProfileView: View {
                             ProfileStylistCreatePanel(
                                 name: $stylistName,
                                 title: $stylistTitle,
+                                phone: $stylistPhone,
                                 bio: $stylistBio,
                                 experience: $stylistExperience,
                                 languages: $stylistLanguages,
@@ -2046,6 +2209,7 @@ struct UserProfileView: View {
             experience: stylistExperience,
             specialties: Array(stylistTags),
             avatarURL: avatar,
+            phone: stylistPhone.trimmingCharacters(in: .whitespacesAndNewlines),
             bio: stylistBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "擁有多年沙龍經驗，擅長依照個人頭骨與臉型設計專屬層次剪裁。" : stylistBio,
             basePrice: services.first?.price ?? 380,
             works: finalWorks,
@@ -2055,8 +2219,8 @@ struct UserProfileView: View {
         let didSubmitForReview = await store.submitStylistApplication(stylist)
         if didSubmitForReview {
             submissionNotice = ProfileSubmissionNotice(
-                title: "檔案已建立完成",
-                message: "髮型師檔案已送出，請等候平台審批。審批通過後會公開到 Hairmap。"
+                title: "提交成功",
+                message: "已提交，等待審批。審批通過後會公開到 Hairmap。"
             )
         }
     }
@@ -2110,13 +2274,19 @@ struct UserProfileView: View {
             Array(salonPortfolio.prefix(10)),
             folder: "salon-portfolio"
         )
-        let didSubmitForReview = await store.submitSalonApplication(salon, works: salonPortfolio)
-        if didSubmitForReview {
-            submissionNotice = ProfileSubmissionNotice(
-                title: "檔案已建立完成",
-                message: "沙龍檔案已送出，請等候平台審批。審批通過後會公開到 Hairmap。"
-            )
+        await store.saveSalon(salon, works: salonPortfolio)
+        let selectedStylists = store.stylists.filter { assignedStylistIDs.contains($0.id) }
+        for var stylist in selectedStylists {
+            stylist.salonID = salonID
+            await store.saveStylist(stylist)
         }
+        if !selectedStylists.isEmpty {
+            await store.refreshCatalog()
+        }
+        submissionNotice = ProfileSubmissionNotice(
+            title: "提交成功",
+            message: "沙龍檔案已自動儲存並公開到 Hairmap 顧客端。"
+        )
     }
 }
 
@@ -2127,6 +2297,7 @@ private struct ProfileSubmissionNotice: Identifiable {
 }
 
 private enum ProfilePanel: String, CaseIterable, Identifiable {
+    case account
     case bookings
     case stylist
     case salon
@@ -2135,11 +2306,12 @@ private enum ProfilePanel: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static func visiblePanels(isAdmin: Bool) -> [ProfilePanel] {
-        isAdmin ? allCases : [.bookings, .stylist, .salon]
+        isAdmin ? [.account, .bookings, .salon, .admin] : [.account, .bookings]
     }
 
     var title: String {
         switch self {
+        case .account: "顧客檔案"
         case .bookings: "我的預約"
         case .stylist: "新增髮型師"
         case .salon: "新增沙龍"
@@ -2210,6 +2382,166 @@ private struct ProfilePanelTabs: View {
     }
 }
 
+private struct CustomerProfilePanel: View {
+    @Environment(HairmapStore.self) private var store
+    @State private var nickname = ""
+    @State private var pickedAvatarItem: PhotosPickerItem?
+    @State private var avatarData: Data?
+    @State private var isSaving = false
+    @State private var isDeleteAlertPresented = false
+    @State private var isDeletingAccount = false
+
+    private var emailText: String {
+        let email = store.currentProfile?.email.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return email.isEmpty ? "訪客體驗" : email
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ProfileFormIntro(
+                title: "顧客檔案資料",
+                subtitle: "設定暱稱與頭像後，發表髮型師/沙龍評論、靈感留言及上傳靈感卡片時會自動代入。"
+            )
+
+            ProfileBox {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 14) {
+                        ProfileUploadedImage(
+                            data: avatarData,
+                            fallbackURL: store.commentAvatarURL,
+                            height: 76,
+                            cornerRadius: 38
+                        )
+                        .frame(width: 76, height: 76)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.black.opacity(0.12), lineWidth: 1))
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(store.commentDisplayName)
+                                .font(.headline.weight(.black))
+                                .foregroundStyle(HMTheme.ink)
+                                .lineLimit(1)
+                            Text(emailText)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            PhotosPicker(selection: $pickedAvatarItem, matching: .images) {
+                                Label("選擇頭像照片", systemImage: "photo")
+                                    .font(.caption.weight(.black))
+                                    .foregroundStyle(HMTheme.ink)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 34)
+                                    .background(Color.white, in: Capsule())
+                                    .overlay(Capsule().stroke(.black.opacity(0.14), lineWidth: 1))
+                            }
+                            .buttonStyle(PressableButtonStyle())
+                        }
+                    }
+
+                    ProfileField(
+                        title: "顧客暱稱",
+                        required: true,
+                        placeholder: "例如：Kelvin、Winnie",
+                        text: $nickname
+                    )
+
+                    Button {
+                        saveProfile()
+                    } label: {
+                        HStack {
+                            if isSaving {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(isSaving ? "正在儲存..." : "儲存顧客檔案資料")
+                        }
+                        .font(.callout.weight(.black))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.black, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .disabled(isSaving)
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("帳號管理")
+                            .font(.callout.weight(.black))
+                            .foregroundStyle(HMTheme.ink)
+                        Text("如需離開 Hairmap，可在此永久刪除帳號、個人檔案及相關登入資料。")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button(role: .destructive) {
+                            isDeleteAlertPresented = true
+                        } label: {
+                            HStack {
+                                if isDeletingAccount {
+                                    ProgressView()
+                                        .tint(.red)
+                                }
+                                Label(isDeletingAccount ? "正在刪除帳號..." : "永久刪除帳號", systemImage: "trash")
+                            }
+                            .font(.callout.weight(.black))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.24), lineWidth: 1))
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .disabled(isDeletingAccount)
+                    }
+                }
+            }
+        }
+        .onAppear(perform: syncFromStore)
+        .onChange(of: pickedAvatarItem) { _, item in
+            Task { await loadAvatar(item) }
+        }
+        .alert("永久刪除 Hairmap 帳號？", isPresented: $isDeleteAlertPresented) {
+            Button("取消", role: .cancel) {}
+            Button("刪除帳號", role: .destructive) {
+                deleteAccount()
+            }
+        } message: {
+            Text("這會刪除您的登入帳號並登出此裝置。刪除後如要再次使用 Hairmap，需要重新註冊。")
+        }
+    }
+
+    private func syncFromStore() {
+        let name = store.commentDisplayName
+        nickname = name == "訪客" ? "" : name
+    }
+
+    private func loadAvatar(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        avatarData = try? await item.loadTransferable(type: Data.self)
+    }
+
+    private func saveProfile() {
+        Task {
+            isSaving = true
+            await store.updateCustomerProfile(displayName: nickname, avatarData: avatarData)
+            isSaving = false
+            avatarData = nil
+            syncFromStore()
+        }
+    }
+
+    private func deleteAccount() {
+        Task {
+            isDeletingAccount = true
+            _ = await store.deleteAccount()
+            isDeletingAccount = false
+        }
+    }
+}
+
 private struct ProfileAdminPanel: View {
     @Environment(HairmapStore.self) private var store
     let stylists: [Stylist]
@@ -2255,14 +2587,13 @@ private struct ProfileAdminPanel: View {
             }
             .padding(.top, 12)
 
-            if !store.pendingStylistApplications.isEmpty || !store.pendingSalonApplications.isEmpty {
-                ProfileAdminSection(title: "待審批申請") {
-                    ForEach(store.pendingStylistApplications) { application in
-                        ProfileAdminStylistApplicationRow(application: application)
-                    }
-                    ForEach(store.pendingSalonApplications) { application in
-                        ProfileAdminSalonApplicationRow(application: application)
-                    }
+            ProfileAdminSection(title: "申請審批狀態") {
+                ForEach(CatalogApplicationStatus.adminDisplayOrder) { status in
+                    ProfileAdminApplicationStatusBlock(
+                        status: status,
+                        stylistApplications: store.pendingStylistApplications.filter { $0.status == status },
+                        salonApplications: store.pendingSalonApplications.filter { $0.status == status }
+                    )
                 }
             }
 
@@ -2310,6 +2641,7 @@ private struct ProfileAdminPanel: View {
         [
             stylist.name,
             stylist.title,
+            stylist.phone,
             stylist.experience,
             stylist.languages,
             stylist.salonID,
@@ -2440,6 +2772,79 @@ private struct ProfileAdminSalonRow: View {
     }
 }
 
+private extension CatalogApplicationStatus {
+    var adminTint: Color {
+        switch self {
+        case .pending:
+            HMTheme.amber
+        case .approved:
+            HMTheme.emerald
+        case .rejected:
+            .red
+        case .hidden:
+            .secondary
+        }
+    }
+
+    var adminIconName: String {
+        switch self {
+        case .pending:
+            "clock.badge.exclamationmark"
+        case .approved:
+            "checkmark.seal.fill"
+        case .rejected:
+            "xmark.seal.fill"
+        case .hidden:
+            "eye.slash.fill"
+        }
+    }
+}
+
+private struct ProfileAdminApplicationStatusBlock: View {
+    let status: CatalogApplicationStatus
+    let stylistApplications: [StylistApplication]
+    let salonApplications: [SalonApplication]
+
+    private var totalCount: Int {
+        stylistApplications.count + salonApplications.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(status.title, systemImage: status.adminIconName)
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(status.adminTint)
+                Spacer()
+                Text("\(totalCount) 宗")
+                    .font(.caption2.monospacedDigit().weight(.black))
+                    .foregroundStyle(status.adminTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(status.adminTint.opacity(0.1), in: Capsule())
+            }
+
+            if totalCount == 0 {
+                Text("暫時沒有\(status.title)記錄")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+            } else {
+                ForEach(stylistApplications) { application in
+                    ProfileAdminStylistApplicationRow(application: application)
+                }
+                ForEach(salonApplications) { application in
+                    ProfileAdminSalonApplicationRow(application: application)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(status.adminTint.opacity(0.22), lineWidth: 1))
+    }
+}
+
 private struct ProfileAdminStylistApplicationRow: View {
     @Environment(HairmapStore.self) private var store
     let application: StylistApplication
@@ -2450,7 +2855,12 @@ private struct ProfileAdminStylistApplicationRow: View {
             badge: "髮型師申請",
             title: application.name,
             subtitle: "\(application.title) · \(application.experience)",
-            meta: "\(application.servicesPayload.count) 項服務 · \(application.worksPayload.count) 張作品",
+            meta: [
+                application.phone?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "未填電話",
+                "\(application.servicesPayload.count) 項服務",
+                "\(application.worksPayload.count) 張作品"
+            ].joined(separator: " · "),
+            status: application.status,
             onApprove: { Task { await store.approveStylistApplication(application) } },
             onReject: { Task { await store.rejectStylistApplication(application) } }
         )
@@ -2468,6 +2878,7 @@ private struct ProfileAdminSalonApplicationRow: View {
             title: application.name,
             subtitle: "\(application.location) · HK$\(application.startPrice) 起",
             meta: "\(application.tags.prefix(3).joined(separator: " / ")) · \(application.worksPayload.count) 張作品",
+            status: application.status,
             onApprove: { Task { await store.approveSalonApplication(application) } },
             onReject: { Task { await store.rejectSalonApplication(application) } }
         )
@@ -2480,6 +2891,7 @@ private struct ProfileAdminApplicationRow: View {
     let title: String
     let subtitle: String
     let meta: String
+    let status: CatalogApplicationStatus
     let onApprove: () -> Void
     let onReject: () -> Void
 
@@ -2490,10 +2902,10 @@ private struct ProfileAdminApplicationRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(badge)
                         .font(.caption2.weight(.black))
-                        .foregroundStyle(Color(red: 0.58, green: 0.38, blue: 0.04))
+                        .foregroundStyle(status.adminTint)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(red: 1.0, green: 0.94, blue: 0.72), in: Capsule())
+                        .background(status.adminTint.opacity(0.12), in: Capsule())
                     Text(title)
                         .font(.subheadline.weight(.black))
                         .foregroundStyle(HMTheme.ink)
@@ -2508,16 +2920,24 @@ private struct ProfileAdminApplicationRow: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Text(status.title)
+                    .font(.caption2.weight(.black))
+                    .foregroundStyle(status.adminTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(status.adminTint.opacity(0.1), in: Capsule())
             }
 
-            HStack(spacing: 8) {
-                ProfileAdminButton(title: "批准公開", isPrimary: true, action: onApprove)
-                ProfileAdminButton(title: "拒絕", isDestructive: true, action: onReject)
+            if status == .pending {
+                HStack(spacing: 8) {
+                    ProfileAdminButton(title: "批准公開", isPrimary: true, action: onApprove)
+                    ProfileAdminButton(title: "拒絕", isDestructive: true, action: onReject)
+                }
             }
         }
         .padding(12)
-        .background(Color(red: 1.0, green: 0.985, blue: 0.94), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(red: 0.9, green: 0.68, blue: 0.22), lineWidth: 1))
+        .background(status == .pending ? Color(red: 1.0, green: 0.985, blue: 0.94) : Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(status.adminTint.opacity(status == .pending ? 0.5 : 0.18), lineWidth: 1))
     }
 }
 
@@ -2888,6 +3308,7 @@ private struct ProfileBookingCard: View {
 private struct ProfileStylistCreatePanel: View {
     @Binding var name: String
     @Binding var title: String
+    @Binding var phone: String
     @Binding var bio: String
     @Binding var experience: String
     @Binding var languages: String
@@ -2915,6 +3336,7 @@ private struct ProfileStylistCreatePanel: View {
 
             ProfileField(title: "設計師姓名", required: true, placeholder: "例如: Leo Master, Marcus Lam", text: $name)
             ProfileField(title: "頭銜職稱", required: true, placeholder: "例如: 歐美挑染專家 / 首席設計師", text: $title)
+            ProfileField(title: "髮型師聯絡電話", required: true, placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
             ProfileTextArea(title: "個人簡介", placeholder: "例如: 擁有10年以上沙龍經驗，擅長歐美漸層手刷染、Balayage，針對個人頭骨與臉型設計專屬層次剪裁。", text: $bio)
 
             HStack(spacing: 10) {
@@ -2993,7 +3415,7 @@ private struct ProfileSalonCreatePanel: View {
         VStack(alignment: .leading, spacing: 18) {
             ProfileFormIntro(
                 title: "新增實體沙龍館檔案",
-                subtitle: "登記您的沙龍館名稱、具體地址、營業時間以及最低起跳預算。提交後會進入平台審批，批准後才會公開展示。"
+                subtitle: "登記沙龍名稱、地址、營業時間與最低起跳預算。管理員建立後會直接儲存到 Supabase 並公開展示。"
             )
 
             ProfileField(title: "沙龍名稱", required: true, placeholder: "例如: Artisan Space, Noir Prestige Salon", text: $name)
@@ -3033,7 +3455,7 @@ private struct ProfileSalonCreatePanel: View {
             ProfileCoverSelector(selectedCoverURL: $selectedCoverURL, customCoverURL: $customCoverURL)
 
             Button(action: onCreate) {
-                Text("提交沙龍店面審批")
+                Text("確認建立並公開沙龍檔案")
                     .font(.callout.weight(.black))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -3283,6 +3705,13 @@ private struct ProfileTagSelector: View {
     let title: String
     let tags: [String]
     @Binding var selection: Set<String>
+    @State private var customTag = ""
+
+    private var customSelections: [String] {
+        selection
+            .filter { !tags.contains($0) }
+            .sorted()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -3308,8 +3737,51 @@ private struct ProfileTagSelector: View {
                     }
                     .buttonStyle(PressableButtonStyle())
                 }
+                ForEach(customSelections, id: \.self) { tag in
+                    Button {
+                        selection.remove(tag)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(tag)
+                                .font(.caption.weight(.black))
+                                .lineLimit(1)
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .black))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                        .background(Color.black, in: Capsule())
+                        .overlay(Capsule().stroke(Color.black, lineWidth: 1))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+            }
+
+            HStack(spacing: 8) {
+                ProfileCompactTextField(placeholder: "輸入自訂風格（例如: 港風層次剪）", text: $customTag)
+                Button {
+                    addCustomTag()
+                } label: {
+                    Text("加入")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(Color.black, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .disabled(customTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(customTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
             }
         }
+    }
+
+    private func addCustomTag() {
+        let clean = customTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        selection.insert(clean)
+        customTag = ""
     }
 }
 
@@ -3695,20 +4167,56 @@ private struct ProfileFeatureEditor: View {
 private struct ProfileAssignedStylists: View {
     let stylists: [Stylist]
     @Binding var selection: Set<String>
+    @State private var searchText = ""
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 2)
+
+    private var filteredStylists: [Stylist] {
+        let sortedStylists = stylists.sorted { lhs, rhs in
+            let lhsSelected = selection.contains(lhs.id)
+            let rhsSelected = selection.contains(rhs.id)
+            if lhsSelected != rhsSelected { return lhsSelected && !rhsSelected }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        let cleanQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanQuery.isEmpty else { return sortedStylists }
+        return sortedStylists.filter { stylist in
+            [
+                stylist.name,
+                stylist.title,
+                stylist.experience,
+                stylist.languages,
+                stylist.specialties.joined(separator: " ")
+            ]
+            .joined(separator: " ")
+            .localizedCaseInsensitiveContains(cleanQuery)
+        }
+    }
 
     var body: some View {
         ProfileBox {
             VStack(alignment: .leading, spacing: 12) {
-                Label("認證在店服務髮型設計師名單", systemImage: "person.2")
-                    .font(.caption.weight(.black))
-                    .foregroundStyle(HMTheme.ink)
+                HStack {
+                    Label("認證在店服務髮型設計師名單", systemImage: "person.2")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(HMTheme.ink)
+                    Spacer()
+                    Text("已選 \(selection.count)")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(HMTheme.amber)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .background(Color.yellow.opacity(0.14), in: Capsule())
+                }
                 Text("點按連結此沙龍內入駐的專業髮型技術人員，消費者將能在店內直接點選與其檔案。")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
+                ProfileSearchField(
+                    placeholder: "搜尋髮型師姓名、頭銜或專長",
+                    text: $searchText
+                )
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(stylists.prefix(4)) { stylist in
+                    ForEach(filteredStylists) { stylist in
                         Button {
                             if selection.contains(stylist.id) {
                                 selection.remove(stylist.id)
@@ -3743,8 +4251,48 @@ private struct ProfileAssignedStylists: View {
                         .buttonStyle(PressableButtonStyle())
                     }
                 }
+                if filteredStylists.isEmpty {
+                    Text("未找到符合條件的髮型師。新髮型師檔案通過審批後，會自動出現在此名單供搜尋加入。")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.06), lineWidth: 1))
+                }
             }
         }
+    }
+}
+
+private struct ProfileSearchField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+            TextField(placeholder, text: $text)
+                .font(.caption.weight(.semibold))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(PressableButtonStyle())
+            }
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 38)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(.black.opacity(0.12), lineWidth: 1))
     }
 }
 

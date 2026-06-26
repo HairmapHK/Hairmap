@@ -9,22 +9,47 @@ Use two Supabase projects:
 - `Hairmap Staging`: for simulator, personal device testing, TestFlight, meme/UGC experiments, and destructive reset scripts.
 - `Hairmap Production`: for App Store users and real salon/stylist records.
 
-The current connected project can stay as production until a staging project is created:
+Current mapping:
 
 ```text
-https://khmeqbcevlkwvgehvuni.supabase.co
+STAGING / TESTFLIGHT
+Project: existing beta project
+URL: https://khmeqbcevlkwvgehvuni.supabase.co
+Purpose: simulator, TestFlight, public beta, UGC/meme testing
+
+PRODUCTION / APP STORE
+Project: Hairmap Production
+Ref: hdywclmsnfegaqtgndva
+URL: https://hdywclmsnfegaqtgndva.supabase.co
+Purpose: App Store users and approved real catalog data only
 ```
 
-## Create Staging
+Production is intentionally clean at creation time. Do not point App Store builds at production until migrations, Auth providers, Storage, admin user, and real catalog data are configured.
 
-1. Create a new Supabase project named `Hairmap Staging`.
-2. Apply every SQL file in `supabase/migrations/` in filename order.
-3. Create the `hairmap-media` Storage bucket.
+## Create / Maintain Staging
+
+1. Use the existing beta project `khmeqbcevlkwvgehvuni`.
+2. Keep TestFlight and public beta builds on this project.
+3. Apply new SQL files in `supabase/migrations/` in filename order when schema changes.
+4. Keep the `hairmap-media` Storage bucket available.
+5. Add Auth redirect URLs:
+   - `hairmap://auth-callback`
+   - the Supabase callback URL required by Google OAuth
+6. Enable the same Auth providers as production.
+7. Keep your own user in `public.admin_users` as `super_admin`.
+
+## Prepare Production
+
+1. Use project `hdywclmsnfegaqtgndva`.
+2. Apply the production schema without demo catalog seed data.
+3. Create or verify the `hairmap-media` Storage bucket and media policies.
 4. Add these Auth redirect URLs:
    - `hairmap://auth-callback`
    - the Supabase callback URL required by Google OAuth
-5. Enable the same Auth providers as production.
-6. Add your own user to `public.admin_users` as `super_admin`.
+5. Enable Email, Google, and Apple Auth providers.
+6. Sign in once with the owner admin email in production, then add that user to `public.admin_users` as `super_admin`.
+7. Import only approved real stylists and salons.
+8. Run security advisors and smoke test auth, bookings, messages, storage uploads, admin approvals, reports, and realtime before App Store release.
 
 ## Xcode Config
 
@@ -38,6 +63,30 @@ cp Config/Supabase-Production.xcconfig.example Config/Supabase-Production.xcconf
 Do not commit the filled `.xcconfig` files if you later add private keys or non-public service settings. The iOS app only needs publishable keys.
 
 For now the project still has the existing production publishable key in build settings, so builds continue to work. After staging exists, point Debug/TestFlight builds at the staging values and keep App Store Release builds on production.
+
+## Admin Web Config
+
+The admin web panel also uses environment-specific Supabase values:
+
+```sh
+cd admin-web
+cp .env.staging.example .env.local
+```
+
+For production deployment:
+
+```sh
+cp .env.production.example .env.local
+```
+
+When deploying to Vercel/Netlify/Cloudflare Pages, set the same variables in the host dashboard instead of relying on local `.env.local`:
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_PUBLISHABLE_KEY
+```
+
+Never place a Supabase service-role key in the admin web app.
 
 ## Import Real Catalog Data
 

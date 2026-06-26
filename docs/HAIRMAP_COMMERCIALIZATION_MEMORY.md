@@ -17,18 +17,18 @@ The intended feel is high-end, fashion-magazine, mobile-first, and practical for
 
 ## Current Strategic Goal
 
-First goal: get a stable iOS build ready for real-device testing, then TestFlight.
+First goal: get a stable iOS build ready for App Store pre-order, then use the pre-order window to collect real stylist and salon supply.
 
 Near-term sequence:
 
-1. Finish functional QA on simulator.
-2. Wait for Apple Developer Program approval.
-3. Upload first TestFlight build.
-4. Test privately on a real iPhone.
-5. Open controlled external TestFlight testing.
-6. Collect real stylist/salon data during beta.
-7. Clean staging/test data before App Store launch.
-8. Seed production with approved real salon/stylist records.
+1. Finish functional QA on real device and TestFlight.
+2. Upload App Store candidate build.
+3. Complete App Store metadata, screenshots, privacy labels, age rating, and reviewer notes.
+4. Submit for App Review.
+5. After approval, open App Store pre-order.
+6. Collect real stylist/salon data during pre-order.
+7. Clean test/demo data before release.
+8. Seed/approve production with approved real salon/stylist records.
 
 ## Data And Approval Rules
 
@@ -73,15 +73,15 @@ Phase 3: SaaS tools for professionals
 
 ## Promotion Plan
 
-Beta/TestFlight should use a controlled, playful campaign, but staging data must stay separate from production.
+Beta/TestFlight should use a controlled campaign. For the current launch, the existing Supabase project is being treated as quasi-production, so fictional/meme/demo data must be cleaned before release.
 
 Suggested campaign:
 
 - Private beta first with trusted testers.
-- Then external TestFlight public link capped at a manageable number.
+- Then external TestFlight public link capped at a manageable number, or shift public demand capture to App Store pre-order.
 - Threads-focused content: UI demos, funny fake stylist cards, hairstyle memes, before/after inspiration, "rate this hair idea" posts.
 - Encourage UGC: users upload hairstyle inspiration, comment, and share screenshots.
-- Use meme/fictional stylist data only in staging/TestFlight. Remove it before production launch.
+- Use meme/fictional stylist data only when clearly separated from the production launch catalog. Remove it before public App Store release.
 
 Content angles:
 

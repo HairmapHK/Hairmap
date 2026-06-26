@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import UIKit
+import AVKit
 
 private enum HairmapUI {
     static let background = Color(red: 0.965, green: 0.972, blue: 0.982)
@@ -99,6 +100,12 @@ private struct DiscoveryDistrictRegion: Identifiable {
 private struct PortfolioGalleryState: Identifiable {
     let id = UUID()
     let works: [PortfolioWork]
+    let initialIndex: Int
+}
+
+private struct LookZoomState: Identifiable {
+    let id = UUID()
+    let slides: [LookMediaSlide]
     let initialIndex: Int
 }
 
@@ -991,8 +998,11 @@ struct InspirationView: View {
             return SharedHairLook(
                 id: item.id,
                 title: item.title,
+                authorID: item.authorID,
                 author: item.authorName.isEmpty ? item.salonName : item.authorName,
+                authorAvatarURL: resolvedAuthorAvatar(for: item),
                 studio: item.studio.isEmpty ? item.salonName : item.studio,
+                location: item.location,
                 tags: item.tags.map { $0.hasPrefix("#") ? $0 : "#\($0)" },
                 imageURL: mediaURLs.first ?? item.imageURL,
                 mediaData: nil,
@@ -1017,6 +1027,20 @@ struct InspirationView: View {
         default:
             return allLooks
         }
+    }
+
+    private func resolvedAuthorAvatar(for item: InspirationItem) -> String {
+        let storedAvatar = item.authorAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !storedAvatar.isEmpty {
+            return storedAvatar
+        }
+        if item.authorID == store.currentProfile?.id {
+            return store.commentAvatarURL
+        }
+        if let stylist = store.stylists.first(where: { $0.id == item.stylistID }) {
+            return stylist.avatarURL
+        }
+        return ""
     }
 
     var body: some View {
@@ -1090,10 +1114,6 @@ struct InspirationView: View {
                 },
                 onShare: {
                     store.recordInspirationShare(look)
-                },
-                onBook: {
-                    let stylistID = look.stylistID ?? "master-leo"
-                    store.startBooking(stylistID: stylistID, service: store.stylist(id: stylistID).services.first)
                 }
             )
         }
@@ -1290,7 +1310,7 @@ private struct SharedLookCard: View {
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
-                    RemoteImage(urlString: authorAvatarURL, height: 18, cornerRadius: 9)
+                    RemoteImage(urlString: look.authorAvatarURL, height: 18, cornerRadius: 9)
                         .frame(width: 18, height: 18)
                     Text(look.author)
                         .font(.system(size: 10, weight: .bold))
@@ -1310,9 +1330,6 @@ private struct SharedLookCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var authorAvatarURL: String {
-        "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80"
-    }
 }
 
 private struct SharedLookImage: View {
@@ -1325,6 +1342,9 @@ private struct SharedLookImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if look.mediaKind == .video, let imageURL = look.imageURL {
+                RemoteVideoPlayer(urlString: imageURL, width: HairmapUI.inspirationCardWidth, height: height)
+                    .allowsHitTesting(false)
             } else if look.mediaKind == .video, look.mediaData != nil {
                 LinearGradient(
                     colors: [Color(red: 0.08, green: 0.08, blue: 0.09), Color(red: 0.24, green: 0.24, blue: 0.26)],
@@ -1382,7 +1402,7 @@ private func mediaSlides(for look: SharedHairLook) -> [LookMediaSlide] {
 
     let related = [
         ("現場設計側拍", "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=1200&q=80"),
-        ("完成後髮色細節", "https://images.unsplash.com/photo-1595959183075-c1d0a174db24?auto=format&fit=crop&w=1200&q=80"),
+        ("完成後髮色細節", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=1200&q=80"),
         ("整理後自然光澤", "https://images.unsplash.com/photo-1519699047748-de8e457a634e?auto=format&fit=crop&w=1200&q=80")
     ]
 
@@ -1411,12 +1431,13 @@ private struct HairLookDetailSheet: View {
     let isLiked: Bool
     let onToggleLike: () -> Void
     let onShare: () -> Void
-    let onBook: () -> Void
     @State private var selectedMediaIndex = 0
     @State private var commentText = ""
     @State private var replyingTo: LookCommentItem?
     @State private var isSaved = false
     @State private var showingNicknamePrompt = false
+    @State private var zoomState: LookZoomState?
+    @State private var reportDraft: ReportDraft?
     @FocusState private var isCommentFieldFocused: Bool
 
     private var detailMediaWidth: CGFloat {
@@ -1456,7 +1477,6 @@ private struct HairLookDetailSheet: View {
                     VStack(alignment: .leading, spacing: 20) {
                         detailTitleBlock
                         tagsSection
-                        recommendationCard
                         commentsSection
                     }
                     .padding(.horizontal, 20)
@@ -1484,11 +1504,19 @@ private struct HairLookDetailSheet: View {
                 store.updateCommentNickname(nickname)
             }
         }
+        .sheet(item: $reportDraft) { draft in
+            ReportSheet(draft: draft) { reason, details in
+                store.submitReport(entityType: draft.entityType, entityID: draft.entityID, reason: reason, details: details)
+            }
+        }
+        .fullScreenCover(item: $zoomState) { state in
+            InspirationMediaLightbox(slides: state.slides, initialIndex: state.initialIndex)
+        }
     }
 
     private var detailAuthorBar: some View {
         HStack(spacing: 12) {
-            RemoteImage(urlString: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80", height: 36, cornerRadius: 18)
+            RemoteImage(urlString: look.authorAvatarURL, height: 36, cornerRadius: 18)
                 .frame(width: 36, height: 36)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -1502,6 +1530,35 @@ private struct HairLookDetailSheet: View {
             }
 
             Spacer()
+
+            Menu {
+                Button("檢舉此靈感內容", role: .destructive) {
+                    reportDraft = ReportDraft(
+                        entityType: .inspiration,
+                        entityID: look.id,
+                        title: "檢舉靈感內容",
+                        subtitle: look.title
+                    )
+                }
+                if let authorID = look.authorID, store.canBlockUser(authorID) {
+                    Button("封鎖並檢舉此作者", role: .destructive) {
+                        store.blockUser(
+                            authorID,
+                            sourceEntityType: .inspiration,
+                            sourceEntityID: look.id,
+                            sourceTitle: "\(look.author)：\(look.title)"
+                        )
+                        dismiss()
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(HairmapUI.ink)
+                    .frame(width: 40, height: 40)
+                    .background(Color.gray.opacity(0.09), in: Circle())
+            }
+            .buttonStyle(PressableButtonStyle())
 
             Button {
                 dismiss()
@@ -1525,9 +1582,22 @@ private struct HairLookDetailSheet: View {
 
             TabView(selection: $selectedMediaIndex) {
                 ForEach(Array(slides.enumerated()), id: \.element.id) { index, slide in
-                    SharedLookDetailSlideImage(slide: slide, width: detailMediaWidth, height: detailMediaHeight)
-                        .frame(width: detailMediaWidth, height: detailMediaHeight)
-                        .clipShape(Rectangle())
+                    Button {
+                        zoomState = LookZoomState(slides: slides, initialIndex: index)
+                    } label: {
+                        SharedLookDetailSlideImage(slide: slide, width: detailMediaWidth, height: detailMediaHeight)
+                            .frame(width: detailMediaWidth, height: detailMediaHeight)
+                            .clipShape(Rectangle())
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 12, weight: .black))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 30, height: 30)
+                                    .background(.black.opacity(0.45), in: Circle())
+                                    .padding(10)
+                            }
+                    }
+                    .buttonStyle(.plain)
                         .tag(index)
                 }
             }
@@ -1574,7 +1644,7 @@ private struct HairLookDetailSheet: View {
             .frame(width: HairmapUI.screenWidth, height: detailMediaHeight, alignment: .bottom)
             .padding(.bottom, 10)
         }
-        .frame(width: HairmapUI.screenWidth, height: detailMediaHeight + 64)
+        .frame(width: HairmapUI.screenWidth, height: detailMediaHeight)
         .animation(.snappy(duration: 0.22), value: selectedMediaIndex)
     }
 
@@ -1745,6 +1815,30 @@ private struct HairLookDetailSheet: View {
                         onReply: {
                             replyingTo = $0
                             isCommentFieldFocused = true
+                        },
+                        canBlock: { store.canBlockUser($0.authorID) },
+                        onBlock: { comment in
+                            guard let authorID = comment.authorID else {
+                                store.statusMessage = "暫時無法封鎖此留言作者"
+                                return
+                            }
+                            store.blockUser(
+                                authorID,
+                                sourceEntityType: .inspiration,
+                                sourceEntityID: "comment:\(comment.id)",
+                                sourceTitle: "\(comment.author)：\(comment.text)"
+                            )
+                            if replyingTo?.authorID == authorID {
+                                replyingTo = nil
+                            }
+                        },
+                        onReport: { comment in
+                            reportDraft = ReportDraft(
+                                entityType: .inspiration,
+                                entityID: "comment:\(comment.id)",
+                                title: "檢舉留言",
+                                subtitle: comment.text
+                            )
                         }
                     )
                     if comment.id != comments.last?.id {
@@ -1934,40 +2028,76 @@ private struct HairLookDetailSheet: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(HairmapUI.line, lineWidth: 1))
     }
 
-    private var recommendationCard: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("推薦此沙龍/設計師")
-                    .font(.system(size: 14, weight: .black))
-                    .foregroundStyle(Color(red: 0.48, green: 0.29, blue: 0.06))
-                Text("\(look.studio)（倫敦・楊哥爾）")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+}
 
-            Spacer()
+private struct RemoteAspectFitImage: View {
+    let urlString: String
+    let width: CGFloat
+    let height: CGFloat
 
-            Button {
-                onBook()
-                dismiss()
-            } label: {
-                HStack(spacing: 5) {
-                    Text("沙龍詳情")
-                    Image(systemName: "arrow.right")
-                }
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(.black, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    var body: some View {
+        AsyncImage(url: URL(string: urlString)) { phase in
+            switch phase {
+            case .empty:
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(ProgressView().tint(.white))
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+            case .failure:
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(Image(systemName: "photo").foregroundStyle(.white.opacity(0.7)))
+            @unknown default:
+                Rectangle().fill(Color.white.opacity(0.08))
             }
-            .buttonStyle(PressableButtonStyle())
         }
-        .padding(16)
-        .frame(width: HairmapUI.contentWidth)
-        .background(Color(red: 1.0, green: 0.99, blue: 0.94), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.yellow.opacity(0.35), lineWidth: 1))
+        .frame(width: width, height: height)
+        .clipped()
+    }
+}
+
+private struct RemoteVideoPlayer: View {
+    let urlString: String
+    let width: CGFloat
+    let height: CGFloat
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack {
+            if URL(string: urlString) != nil {
+                VideoPlayer(player: player)
+                    .background(Color.black)
+                    .onAppear {
+                        guard player == nil, let url = URL(string: urlString) else { return }
+                        let nextPlayer = AVPlayer(url: url)
+                        nextPlayer.isMuted = true
+                        player = nextPlayer
+                        nextPlayer.play()
+                    }
+                    .onDisappear {
+                        player?.pause()
+                        player = nil
+                    }
+                    .overlay(alignment: .topLeading) {
+                        Label("VIDEO", systemImage: "play.fill")
+                            .font(.system(size: 9, weight: .black, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .frame(height: 22)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(8)
+                    }
+            } else {
+                Rectangle()
+                    .fill(Color.black)
+                    .overlay(Image(systemName: "play.slash").foregroundStyle(.white.opacity(0.72)))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipped()
     }
 }
 
@@ -1981,7 +2111,9 @@ private struct SharedLookDetailImage: View {
             if look.mediaKind == .photo, let data = look.mediaData, let image = UIImage(data: data) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+            } else if look.mediaKind == .video, let imageURL = look.imageURL {
+                RemoteVideoPlayer(urlString: imageURL, width: width, height: height)
             } else if look.mediaKind == .video, look.mediaData != nil {
                 LinearGradient(
                     colors: [Color(red: 0.08, green: 0.08, blue: 0.09), Color(red: 0.24, green: 0.24, blue: 0.26)],
@@ -1992,8 +2124,7 @@ private struct SharedLookDetailImage: View {
                     .font(.system(size: 58, weight: .bold))
                     .foregroundStyle(.white)
             } else if let imageURL = look.imageURL {
-                RemoteImage(urlString: imageURL, height: height)
-                    .frame(width: width)
+                RemoteAspectFitImage(urlString: imageURL, width: width, height: height)
             } else {
                 Color(red: 0.93, green: 0.94, blue: 0.96)
                 Image(systemName: "photo")
@@ -2016,7 +2147,9 @@ private struct SharedLookDetailSlideImage: View {
             if slide.mediaKind == .photo, let data = slide.mediaData, let image = UIImage(data: data) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+            } else if slide.mediaKind == .video, let imageURL = slide.imageURL {
+                RemoteVideoPlayer(urlString: imageURL, width: width, height: height)
             } else if slide.mediaKind == .video, slide.mediaData != nil {
                 LinearGradient(
                     colors: [Color(red: 0.08, green: 0.08, blue: 0.09), Color(red: 0.24, green: 0.24, blue: 0.26)],
@@ -2027,8 +2160,7 @@ private struct SharedLookDetailSlideImage: View {
                     .font(.system(size: 58, weight: .bold))
                     .foregroundStyle(.white)
             } else if let imageURL = slide.imageURL {
-                RemoteImage(urlString: imageURL, height: height)
-                    .frame(width: width)
+                RemoteAspectFitImage(urlString: imageURL, width: width, height: height)
             } else {
                 Color(red: 0.93, green: 0.94, blue: 0.96)
                 Image(systemName: "photo")
@@ -2041,11 +2173,83 @@ private struct SharedLookDetailSlideImage: View {
     }
 }
 
+private struct InspirationMediaLightbox: View {
+    @Environment(\.dismiss) private var dismiss
+    let slides: [LookMediaSlide]
+    @State private var selectedIndex: Int
+
+    init(slides: [LookMediaSlide], initialIndex: Int) {
+        self.slides = slides
+        _selectedIndex = State(initialValue: initialIndex)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            TabView(selection: $selectedIndex) {
+                ForEach(Array(slides.enumerated()), id: \.element.id) { index, slide in
+                    GeometryReader { proxy in
+                        SharedLookDetailSlideImage(
+                            slide: slide,
+                            width: proxy.size.width,
+                            height: proxy.size.height
+                        )
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .tag(index)
+                    }
+                    .ignoresSafeArea()
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            VStack {
+                HStack {
+                    Text("\(selectedIndex + 1) / \(max(slides.count, 1))")
+                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(.white.opacity(0.16), in: Capsule())
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.white.opacity(0.18), in: Circle())
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+
+                Spacer()
+
+                HStack(spacing: 5) {
+                    ForEach(Array(slides.enumerated()), id: \.element.id) { index, _ in
+                        Capsule()
+                            .fill(index == selectedIndex ? .white : .white.opacity(0.34))
+                            .frame(width: index == selectedIndex ? 22 : 7, height: 5)
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 private struct InspirationCommentThreadRow: View {
     let comment: LookCommentItem
     let likedIDs: Set<String>
     let onLike: (LookCommentItem) -> Void
     let onReply: (LookCommentItem) -> Void
+    let canBlock: (LookCommentItem) -> Bool
+    let onBlock: (LookCommentItem) -> Void
+    let onReport: (LookCommentItem) -> Void
     var isReply = false
 
     var body: some View {
@@ -2055,7 +2259,10 @@ private struct InspirationCommentThreadRow: View {
                 isLiked: likedIDs.contains(comment.id),
                 isReply: isReply,
                 onLike: { onLike(comment) },
-                onReply: { onReply(comment) }
+                onReply: { onReply(comment) },
+                canBlock: canBlock(comment),
+                onBlock: { onBlock(comment) },
+                onReport: { onReport(comment) }
             )
 
             if !comment.replies.isEmpty {
@@ -2066,6 +2273,9 @@ private struct InspirationCommentThreadRow: View {
                             likedIDs: likedIDs,
                             onLike: onLike,
                             onReply: onReply,
+                            canBlock: canBlock,
+                            onBlock: onBlock,
+                            onReport: onReport,
                             isReply: true
                         )
                     }
@@ -2106,6 +2316,9 @@ private struct InspirationCommentContentRow: View {
     var isReply = false
     let onLike: () -> Void
     let onReply: () -> Void
+    let canBlock: Bool
+    let onBlock: () -> Void
+    let onReport: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -2130,9 +2343,21 @@ private struct InspirationCommentContentRow: View {
                             .background(.black, in: Capsule())
                     }
                     Spacer()
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.secondary)
+                    Menu {
+                        Button("檢舉此留言", role: .destructive) {
+                            onReport()
+                        }
+                        if canBlock {
+                            Button("封鎖並檢舉此用戶", role: .destructive) {
+                                onBlock()
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 28)
+                    }
                 }
 
                 Text(comment.text)
@@ -2192,6 +2417,7 @@ private struct HairShareSheet: View {
     @State private var studio = "311 SALON 男士燙染造型"
     @State private var location = "深圳 · 福田區"
     @State private var tags = ["#日系羊毛卷", "#巴黎挑染", "#縮毛矯正", "#裙擺染", "#高層次氣墊燙", "#經典漸層油頭", "#線條感挑染"]
+    @State private var selectedTags: Set<String> = ["#日系羊毛卷"]
     @State private var customTag = ""
     @State private var faceShape = "鵝蛋臉、圓臉皆適合"
     @State private var hairType = "一般髮質、中等或細軟髮量"
@@ -2214,7 +2440,7 @@ private struct HairShareSheet: View {
             id: "paris_blonde",
             title: "巴黎冷色手刷染",
             subtitle: "巴黎冷色手刷染",
-            imageURL: "https://images.unsplash.com/photo-1595959183075-c1d0a174db24?auto=format&fit=crop&w=600&q=80",
+            imageURL: "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=600&q=80",
             tags: ["#巴黎挑染", "#線條感挑染"],
             faceShape: "長臉、心形臉適合",
             hairType: "中等或偏厚髮量",
@@ -2336,13 +2562,20 @@ private struct HairShareSheet: View {
                         sheetLabel("標記您的髮型特點（可多選）")
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 8)], spacing: 8) {
                             ForEach(tags, id: \.self) { tag in
-                                Text(tag)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(HairmapUI.ink)
-                                    .padding(.horizontal, 10)
-                                    .frame(height: 30)
-                                    .background(.white, in: Capsule())
-                                    .overlay(Capsule().stroke(HairmapUI.line, lineWidth: 1))
+                                Button {
+                                    toggleTag(tag)
+                                } label: {
+                                    Text(tag)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.72)
+                                        .foregroundStyle(selectedTags.contains(tag) ? .white : HairmapUI.ink)
+                                        .padding(.horizontal, 10)
+                                        .frame(height: 30)
+                                        .background(selectedTags.contains(tag) ? Color.black : .white, in: Capsule())
+                                        .overlay(Capsule().stroke(selectedTags.contains(tag) ? Color.black : HairmapUI.line, lineWidth: 1))
+                                }
+                                .buttonStyle(PressableButtonStyle())
                             }
                         }
 
@@ -2467,10 +2700,19 @@ private struct HairShareSheet: View {
         selectedMediaKind = .photo
         title = template.title
         tags = Array(Set(tags + template.tags)).sorted()
+        selectedTags.formUnion(template.tags)
         faceShape = template.faceShape
         hairType = template.hairType
         specs = template.specs
         details = template.details
+    }
+
+    private func toggleTag(_ tag: String) {
+        if selectedTags.contains(tag) {
+            selectedTags.remove(tag)
+        } else {
+            selectedTags.insert(tag)
+        }
     }
 
     private func addCustomTag() {
@@ -2478,6 +2720,7 @@ private struct HairShareSheet: View {
         guard !clean.isEmpty else { return }
         let tag = clean.hasPrefix("#") ? clean : "#\(clean)"
         if !tags.contains(tag) { tags.append(tag) }
+        selectedTags.insert(tag)
         customTag = ""
     }
 
@@ -2515,9 +2758,12 @@ private struct HairShareSheet: View {
         let look = SharedHairLook(
             id: "user_\(Int(Date().timeIntervalSince1970 * 1000))",
             title: cleanTitle,
-            author: store.currentProfile?.displayName ?? "Hairmap 顧客",
+            authorID: store.currentProfile?.id,
+            author: store.commentDisplayName,
+            authorAvatarURL: store.commentAvatarURL,
             studio: studio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Hairmap Community" : studio,
-            tags: tags.isEmpty ? ["#我的髮型"] : tags,
+            location: location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "香港" : location,
+            tags: selectedTags.isEmpty ? ["#我的髮型"] : Array(selectedTags).sorted(),
             imageURL: selectedMediaItems.isEmpty ? selectedTemplate?.imageURL : nil,
             mediaData: primaryMedia?.mediaData,
             mediaKind: primaryMedia?.mediaKind ?? selectedMediaKind,
@@ -2637,7 +2883,7 @@ private struct QuickTemplateCard: View {
 }
 
 private let portfolioFallbackPresets: [(String, String)] = [
-    ("霧感冷灰層次", "https://images.unsplash.com/photo-1595959183075-c1d0a174db24?auto=format&fit=crop&w=900&q=80"),
+    ("霧感冷灰層次", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=900&q=80"),
     ("日系柔光剪裁", "https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?auto=format&fit=crop&w=900&q=80"),
     ("法式蓬鬆線條", "https://images.unsplash.com/photo-1519699047748-de8e457a634e?auto=format&fit=crop&w=900&q=80"),
     ("高層次空氣感", "https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&w=900&q=80"),
@@ -2646,24 +2892,60 @@ private let portfolioFallbackPresets: [(String, String)] = [
     ("店內設計項目", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=900&q=80")
 ]
 
+private let brokenPortfolioImageURLFragments: Set<String> = [
+    "photo-1595959183075-c1d0a174db24"
+]
+
+private func isDisplayablePortfolioImageURL(_ urlString: String) -> Bool {
+    let clean = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !clean.isEmpty else { return false }
+    guard !brokenPortfolioImageURLFragments.contains(where: { clean.contains($0) }) else { return false }
+    guard let url = URL(string: clean), let scheme = url.scheme?.lowercased() else { return false }
+    return scheme == "http" || scheme == "https"
+}
+
+private func displayablePortfolioWorks(_ works: [PortfolioWork], limit: Int? = nil) -> [PortfolioWork] {
+    var seen = Set<String>()
+    let filtered = works.compactMap { work -> PortfolioWork? in
+        let cleanURL = work.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isDisplayablePortfolioImageURL(cleanURL), seen.insert(cleanURL).inserted else { return nil }
+        var cleaned = work
+        cleaned.imageURL = cleanURL
+        return cleaned
+    }
+    if let limit {
+        return Array(filtered.prefix(limit))
+    }
+    return filtered
+}
+
 private func expandedPortfolioWorks(
     base: [PortfolioWork],
     stylistID: String,
     titlePrefix: String,
     inspiration: [InspirationItem],
     sharedLooks: [SharedHairLook],
-    limit: Int = 9
+    limit: Int = 9,
+    allowDemoExpansion: Bool = false
 ) -> [PortfolioWork] {
-    var works = base
+    var works = displayablePortfolioWorks(base)
     var seen = Set(works.map(\.imageURL))
 
-    for item in inspiration where item.stylistID == stylistID && !seen.contains(item.imageURL) {
-        works.append(PortfolioWork(id: "inspiration-\(item.id)", stylistID: stylistID, title: item.title, imageURL: item.imageURL))
-        seen.insert(item.imageURL)
+    guard allowDemoExpansion else {
+        return Array(works.prefix(limit))
+    }
+
+    for item in inspiration where item.stylistID == stylistID {
+        let imageURL = item.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isDisplayablePortfolioImageURL(imageURL), !seen.contains(imageURL) else { continue }
+        works.append(PortfolioWork(id: "inspiration-\(item.id)", stylistID: stylistID, title: item.title, imageURL: imageURL))
+        seen.insert(imageURL)
     }
 
     for look in sharedLooks where look.stylistID == stylistID {
-        guard let imageURL = look.imageURL, !seen.contains(imageURL) else { continue }
+        guard let rawURL = look.imageURL else { continue }
+        let imageURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isDisplayablePortfolioImageURL(imageURL), !seen.contains(imageURL) else { continue }
         works.append(PortfolioWork(id: "shared-\(look.id)", stylistID: stylistID, title: look.title, imageURL: imageURL))
         seen.insert(imageURL)
     }
@@ -2683,28 +2965,35 @@ private func expandedSalonWorks(
     team: [Stylist],
     inspiration: [InspirationItem],
     sharedLooks: [SharedHairLook],
-    limit: Int = 9
+    limit: Int = 9,
+    allowDemoFallback: Bool = false
 ) -> [PortfolioWork] {
     let stylistIDs = Set(team.map(\.id))
-    var works = team.flatMap(\.works)
+    var works = displayablePortfolioWorks(team.flatMap(\.works))
     var seen = Set(works.map(\.imageURL))
 
-    for item in inspiration where stylistIDs.contains(item.stylistID) && !seen.contains(item.imageURL) {
-        works.append(PortfolioWork(id: "salon-inspiration-\(item.id)", stylistID: item.stylistID, title: item.title, imageURL: item.imageURL))
-        seen.insert(item.imageURL)
+    for item in inspiration where stylistIDs.contains(item.stylistID) {
+        let imageURL = item.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isDisplayablePortfolioImageURL(imageURL), !seen.contains(imageURL) else { continue }
+        works.append(PortfolioWork(id: "salon-inspiration-\(item.id)", stylistID: item.stylistID, title: item.title, imageURL: imageURL))
+        seen.insert(imageURL)
     }
 
     for look in sharedLooks where look.stylistID.map({ stylistIDs.contains($0) }) == true {
-        guard let imageURL = look.imageURL, !seen.contains(imageURL) else { continue }
+        guard let rawURL = look.imageURL else { continue }
+        let imageURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isDisplayablePortfolioImageURL(imageURL), !seen.contains(imageURL) else { continue }
         works.append(PortfolioWork(id: "salon-shared-\(look.id)", stylistID: look.stylistID ?? salon.id, title: look.title, imageURL: imageURL))
         seen.insert(imageURL)
     }
 
-    var fallbackIndex = 0
-    while works.count < limit {
-        let preset = portfolioFallbackPresets[fallbackIndex % portfolioFallbackPresets.count]
-        works.append(PortfolioWork(id: "\(salon.id)-fallback-\(fallbackIndex)", stylistID: salon.id, title: "店內設計項目 \(fallbackIndex + 1)", imageURL: preset.1))
-        fallbackIndex += 1
+    if allowDemoFallback {
+        var fallbackIndex = 0
+        while works.count < limit {
+            let preset = portfolioFallbackPresets[fallbackIndex % portfolioFallbackPresets.count]
+            works.append(PortfolioWork(id: "\(salon.id)-fallback-\(fallbackIndex)", stylistID: salon.id, title: "店內設計項目 \(fallbackIndex + 1)", imageURL: preset.1))
+            fallbackIndex += 1
+        }
     }
 
     return Array(works.prefix(limit))
@@ -2713,27 +3002,45 @@ private func expandedSalonWorks(
 struct StylistProfileView: View {
     @Environment(HairmapStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     let stylistID: String
     @State private var selectedServiceID = ""
     @State private var selectedGallery: PortfolioGalleryState?
+    @State private var reportDraft: ReportDraft?
 
     private var stylist: Stylist { store.stylist(id: stylistID) }
     private var selectedService: ServiceItem? {
         stylist.services.first { $0.id == selectedServiceID } ?? stylist.services.first
     }
     private var profileWorks: [PortfolioWork] {
-        expandedPortfolioWorks(
+        let isSeedStylist = stylist.ownerID == nil && SeedData.stylists.contains { $0.id == stylist.id }
+        return expandedPortfolioWorks(
             base: stylist.works,
             stylistID: stylist.id,
             titlePrefix: stylist.name,
             inspiration: store.inspiration,
-            sharedLooks: store.sharedLooks
+            sharedLooks: store.sharedLooks,
+            allowDemoExpansion: isSeedStylist
         )
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailTopBar(title: "Hairmap", onBack: { dismiss() })
+            DetailTopBar(
+                title: "Hairmap",
+                onBack: { dismiss() },
+                onReport: {
+                    reportDraft = ReportDraft(
+                        entityType: .stylist,
+                        entityID: stylist.id,
+                        title: "檢舉髮型師檔案",
+                        subtitle: stylist.name
+                    )
+                },
+                onBlock: store.canBlockUser(stylist.ownerID) ? {
+                    blockStylistOwner()
+                } : nil
+            )
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -2745,6 +3052,8 @@ struct StylistProfileView: View {
                         .offset(y: -36)
 
                     VStack(alignment: .leading, spacing: 26) {
+                        stylistBioSection
+                        stylistContactSection
                         portfolioSection
                         servicesSection
                         reviewsSection
@@ -2790,8 +3099,80 @@ struct StylistProfileView: View {
         .fullScreenCover(item: $selectedGallery) { gallery in
             PortfolioLightbox(works: gallery.works, initialIndex: gallery.initialIndex)
         }
+        .sheet(item: $reportDraft) { draft in
+            ReportSheet(draft: draft) { reason, details in
+                store.submitReport(entityType: draft.entityType, entityID: draft.entityID, reason: reason, details: details)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .background(HairmapUI.background.ignoresSafeArea())
+    }
+
+    private func blockStylistOwner() {
+        guard let ownerID = stylist.ownerID else {
+            store.statusMessage = "暫時無法封鎖此髮型師帳號"
+            return
+        }
+        store.blockUser(
+            ownerID,
+            sourceEntityType: .profile,
+            sourceEntityID: ownerID.uuidString,
+            sourceTitle: stylist.name
+        )
+        dismiss()
+    }
+
+    private var stylistContactSection: some View {
+        let phone = stylist.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "phone.fill")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                Text("髮型師聯絡電話")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(HairmapUI.ink)
+            }
+
+            Button(action: callStylist) {
+                HStack(spacing: 12) {
+                    Image(systemName: phone.isEmpty ? "phone.slash" : "phone")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(phone.isEmpty ? Color.secondary : Color.black)
+                        .frame(width: 36, height: 36)
+                        .background(Color(red: 1.0, green: 0.95, blue: 0.76), in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(phone.isEmpty ? "暫未提供電話" : phone)
+                            .font(.system(size: 16, weight: .black, design: .monospaced))
+                            .foregroundStyle(HairmapUI.ink)
+                        Text(phone.isEmpty ? "髮型師更新檔案後會顯示" : "點擊直接聯絡此髮型師")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .frame(width: HairmapUI.contentWidth)
+                .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(HairmapUI.line, lineWidth: 1))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .disabled(phone.isEmpty)
+        }
+        .frame(width: HairmapUI.contentWidth, alignment: .leading)
+    }
+
+    private func callStylist() {
+        let allowed = CharacterSet(charactersIn: "+0123456789")
+        let phone = stylist.phone.unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init)
+            .joined()
+        guard !phone.isEmpty, let url = URL(string: "tel://\(phone)") else { return }
+        openURL(url)
     }
 
     private var stylistHero: some View {
@@ -2828,6 +3209,46 @@ struct StylistProfileView: View {
         }
         .frame(width: HairmapUI.screenWidth, height: HairmapUI.detailHeroHeight)
         .clipped()
+    }
+
+    private var stylistBioSection: some View {
+        let bio = stylist.bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "quote.opening")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                Text("個人簡介 Bio")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(HairmapUI.ink)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(bio.isEmpty ? "這位髮型師尚未填寫個人簡介。審批通過後，新增或更新髮型師檔案內的個人簡介會同步顯示在這裡。" : bio)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 0.32, green: 0.35, blue: 0.4))
+                    .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                    ForEach(stylist.specialties.prefix(4), id: \.self) { specialty in
+                        Text(specialty)
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundStyle(HairmapUI.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color(red: 1.0, green: 0.95, blue: 0.76), in: Capsule())
+                    }
+                }
+            }
+            .frame(width: HairmapUI.contentWidth - 36, alignment: .leading)
+            .padding(18)
+            .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(HairmapUI.line, lineWidth: 1))
+        }
+        .frame(width: HairmapUI.contentWidth, alignment: .leading)
     }
 
     private var portfolioSection: some View {
@@ -2906,16 +3327,44 @@ struct StylistProfileView: View {
 
             VStack(spacing: 14) {
                 ForEach(stylist.reviews) { review in
-                    ReviewRow(review: review)
+                    ReviewRow(
+                        review: review,
+                        onReport: { review in
+                        reportDraft = ReportDraft(
+                            entityType: .review,
+                            entityID: review.id,
+                            title: "檢舉顧客評價",
+                            subtitle: review.text
+                        )
+                        },
+                        onBlock: store.canBlockUser(review.reviewerID) ? { selectedReview in
+                            blockReview(selectedReview)
+                        } : nil
+                    )
                 }
             }
         }
+    }
+
+    private func blockReview(_ review: ReviewItem) {
+        guard let reviewerID = review.reviewerID else {
+            store.statusMessage = "暫時無法封鎖此評價作者"
+            return
+        }
+        store.blockUser(
+            reviewerID,
+            sourceEntityType: .review,
+            sourceEntityID: review.id,
+            sourceTitle: "\(review.reviewerName)：\(review.text)"
+        )
     }
 }
 
 private struct DetailTopBar: View {
     let title: String
     let onBack: () -> Void
+    var onReport: (() -> Void)?
+    var onBlock: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -2933,13 +3382,32 @@ private struct DetailTopBar: View {
                 .foregroundStyle(.black)
             Spacer()
 
-            Button {} label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .bold))
-                    .frame(width: 44, height: 44)
-                    .foregroundStyle(.black)
+            if let onReport {
+                Menu {
+                    Button("檢舉此檔案", role: .destructive) {
+                        onReport()
+                    }
+                    if let onBlock {
+                        Button("封鎖並檢舉此用戶", role: .destructive) {
+                            onBlock()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 18, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(.black)
+                }
+                .buttonStyle(PressableButtonStyle())
+            } else {
+                Button {} label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(.black)
+                }
+                .buttonStyle(PressableButtonStyle())
             }
-            .buttonStyle(PressableButtonStyle())
         }
         .padding(.horizontal, 10)
         .frame(height: 62)
@@ -2996,19 +3464,30 @@ private struct PortfolioTile: View {
     var height: CGFloat
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RemoteImage(urlString: work.imageURL, height: height, cornerRadius: 12)
-            LinearGradient(colors: [.clear, .black.opacity(0.52)], startPoint: .center, endPoint: .bottom)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Text(work.title)
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(10)
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                RemoteImage(urlString: work.imageURL, height: proxy.size.height, cornerRadius: 12)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+
+                LinearGradient(colors: [.clear, .black.opacity(0.58)], startPoint: .center, endPoint: .bottom)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Text(work.title)
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(10)
+                    .frame(width: proxy.size.width, alignment: .leading)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.72), lineWidth: 1))
         }
-        .frame(maxWidth: .infinity)
         .frame(height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -3166,12 +3645,16 @@ private struct ServiceSelectionRow: View {
 
 struct ReviewRow: View {
     let review: ReviewItem
+    var onReport: ((ReviewItem) -> Void)?
+    var onBlock: ((ReviewItem) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 11) {
                 RemoteImage(urlString: review.reviewerAvatar, height: 42, cornerRadius: 21)
-                    .frame(width: 42)
+                    .frame(width: 42, height: 42)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(review.reviewerName)
                         .font(.system(size: 14, weight: .black))
@@ -3182,6 +3665,23 @@ struct ReviewRow: View {
                 }
                 Spacer()
                 StarLine(stars: review.stars, size: 12)
+                if let onReport {
+                    Menu {
+                        Button("檢舉此評價", role: .destructive) {
+                            onReport(review)
+                        }
+                        if let onBlock {
+                            Button("封鎖並檢舉此用戶", role: .destructive) {
+                                onBlock(review)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 30)
+                    }
+                }
             }
 
             Text(review.text)
@@ -3190,21 +3690,47 @@ struct ReviewRow: View {
                 .lineSpacing(3)
 
             if let photoURL = review.reviewPhotoURL, !photoURL.isEmpty {
-                RemoteImage(urlString: photoURL, height: 112, cornerRadius: 12)
-                    .frame(width: 112)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(HairmapUI.line, lineWidth: 1))
+                ReviewPhotoThumbnail(photoURL: photoURL)
             } else if let data = review.reviewPhotoData, let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 112, height: 112)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(HairmapUI.line, lineWidth: 1))
+                ReviewPhotoThumbnail(image: image)
             }
         }
         .padding(16)
         .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(HairmapUI.line, lineWidth: 1))
+    }
+}
+
+private struct ReviewPhotoThumbnail: View {
+    var photoURL: String? = nil
+    var image: UIImage? = nil
+
+    private var width: CGFloat {
+        min(152, HairmapUI.contentWidth * 0.43)
+    }
+
+    private var height: CGFloat {
+        width * 0.75
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if let photoURL {
+                RemoteImage(urlString: photoURL, height: height, cornerRadius: 12)
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.1))
+                    .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipped()
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(HairmapUI.line, lineWidth: 1))
     }
 }
 
@@ -3558,24 +4084,44 @@ private struct SalonProfileFooter: View {
 struct SalonProfileView: View {
     @Environment(HairmapStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     let salonID: String
     @State private var selectedGallery: PortfolioGalleryState?
+    @State private var reportDraft: ReportDraft?
 
     private var salon: Salon { store.salon(id: salonID) }
     private var team: [Stylist] { store.stylists.filter { $0.salonID == salonID } }
     private var featuredStylist: Stylist { team.first ?? store.stylist() }
     private var salonWorks: [PortfolioWork] {
-        let savedWorks = store.salonWorks[salonID] ?? []
-        let expandedWorks = expandedSalonWorks(salon: salon, team: team, inspiration: store.inspiration, sharedLooks: store.sharedLooks)
+        let savedWorks = displayablePortfolioWorks(store.salonWorks[salonID] ?? [])
+        let isSeedSalon = SeedData.salons.contains { $0.id == salon.id }
+        let expandedWorks = expandedSalonWorks(
+            salon: salon,
+            team: team,
+            inspiration: store.inspiration,
+            sharedLooks: store.sharedLooks,
+            allowDemoFallback: isSeedSalon
+        )
         var seen = Set(savedWorks.map(\.imageURL))
-        return Array((savedWorks + expandedWorks.filter { seen.insert($0.imageURL).inserted }).prefix(9))
+        return displayablePortfolioWorks(savedWorks + expandedWorks.filter { seen.insert($0.imageURL).inserted }, limit: 9)
     }
     private var salonServices: [ServiceItem] { Array(team.flatMap { $0.services }.prefix(3)) }
     private var salonReviews: [ReviewItem] { Array(team.flatMap { $0.reviews }.prefix(4)) }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailTopBar(title: "沙龍檔案詳情", onBack: { dismiss() })
+            DetailTopBar(
+                title: "沙龍檔案詳情",
+                onBack: { dismiss() },
+                onReport: {
+                    reportDraft = ReportDraft(
+                        entityType: .salon,
+                        entityID: salon.id,
+                        title: "檢舉沙龍檔案",
+                        subtitle: salon.name
+                    )
+                }
+            )
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -3608,7 +4154,7 @@ struct SalonProfileView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            FloatingCircleButton(systemImage: "phone") {}
+            FloatingCircleButton(systemImage: "phone", action: callSalon)
                 .background(HairmapUI.amber600, in: Circle())
                 .padding(.trailing, 26)
                 .padding(.bottom, 98)
@@ -3620,8 +4166,23 @@ struct SalonProfileView: View {
         .fullScreenCover(item: $selectedGallery) { gallery in
             PortfolioLightbox(works: gallery.works, initialIndex: gallery.initialIndex)
         }
+        .sheet(item: $reportDraft) { draft in
+            ReportSheet(draft: draft) { reason, details in
+                store.submitReport(entityType: draft.entityType, entityID: draft.entityID, reason: reason, details: details)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .background(HairmapUI.background.ignoresSafeArea())
+    }
+
+    private func callSalon() {
+        let allowed = CharacterSet(charactersIn: "+0123456789")
+        let phone = salon.phone.unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init)
+            .joined()
+        guard let url = URL(string: "tel://\(phone)") else { return }
+        openURL(url)
     }
 
     private var salonHero: some View {
@@ -3783,10 +4344,36 @@ struct SalonProfileView: View {
 
             VStack(spacing: 14) {
                 ForEach(salonReviews) { review in
-                    ReviewRow(review: review)
+                    ReviewRow(
+                        review: review,
+                        onReport: { review in
+                        reportDraft = ReportDraft(
+                            entityType: .review,
+                            entityID: review.id,
+                            title: "檢舉沙龍評價",
+                            subtitle: review.text
+                        )
+                        },
+                        onBlock: store.canBlockUser(review.reviewerID) ? { selectedReview in
+                            blockReview(selectedReview)
+                        } : nil
+                    )
                 }
             }
         }
+    }
+
+    private func blockReview(_ review: ReviewItem) {
+        guard let reviewerID = review.reviewerID else {
+            store.statusMessage = "暫時無法封鎖此評價作者"
+            return
+        }
+        store.blockUser(
+            reviewerID,
+            sourceEntityType: .review,
+            sourceEntityID: review.id,
+            sourceTitle: "\(review.reviewerName)：\(review.text)"
+        )
     }
 }
 

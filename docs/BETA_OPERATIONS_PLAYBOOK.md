@@ -2,25 +2,25 @@
 
 This playbook is for the period before App Store launch.
 
-## Current Constraint
+## Current Launch Direction
 
-Without an active Apple Developer Program membership, Hairmap can continue to be built and tested on Simulator, but TestFlight and App Store upload remain blocked.
+Apple Developer Program access is active and TestFlight uploads are working. The current plan is to submit the app for App Review, set the approved version as an App Store pre-order, then collect real stylist/salon records during the pre-order period.
 
 ## Environments
 
-Use separate Supabase projects before public testing:
+Long term, use separate Supabase projects:
 
 - Staging: TestFlight, Threads beta campaigns, meme/UGC experiments, destructive cleanup.
 - Production: real customer/stylist/salon records for App Store launch.
 
-The admin panel shows the active app environment. Debug builds currently label themselves as `development`; Release builds label themselves as `production`.
+For this first launch, the existing Supabase project may be used as a "quasi-production" environment as long as test data is cleaned before public release. The admin panel shows the active app environment. Debug builds currently label themselves as `development`; Release builds label themselves as `production`.
 
 ## Private Device Test
 
-When Apple membership is available:
+Before App Store submission:
 
 1. Create the App Store Connect app record.
-2. Archive and upload build `1`.
+2. Archive and upload the latest build.
 3. Test on your own iPhone first.
 4. Verify Google/Apple/email login.
 5. Create a customer booking.
@@ -38,6 +38,17 @@ Recommended rollout:
 - Wave 3: public link capped at 100 testers
 
 Keep meme/UGC seed data on staging only. Before App Store launch, expire the external testing build and close the public link.
+
+## App Store Pre-Order Campaign
+
+Recommended use:
+
+- Announce the app and direct people to the App Store pre-order page.
+- Collect real stylist/salon records through the intake form while the pre-order is live.
+- Use the admin backend to approve only real, complete, publishable records.
+- Avoid adding meme/demo profiles to the production dataset used by the App Store build.
+- If only Supabase content changes, no new build is required.
+- If app functionality changes, upload a new build and allow time for another Apple review.
 
 ## Feedback Form Fields
 

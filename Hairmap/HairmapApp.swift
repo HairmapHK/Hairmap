@@ -1,7 +1,28 @@
 import SwiftUI
+import UIKit
+import UserNotifications
+
+final class HairmapAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
+    }
+}
 
 @main
 struct HairmapApp: App {
+    @UIApplicationDelegateAdaptor(HairmapAppDelegate.self) private var appDelegate
     @State private var store = HairmapStore()
 
     var body: some Scene {
@@ -25,13 +46,16 @@ struct RootView: View {
         @Bindable var store = store
 
         Group {
-            if let profile = store.currentProfile {
+            if store.isBootstrapping {
+                HairmapLaunchLoadingView()
+                    .transition(.opacity)
+            } else if let profile = store.currentProfile {
                 switch profile.role {
                 case .customer:
                     CustomerShellView()
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 case .stylist:
-                    StylistDashboardView(stylistID: profile.stylistID ?? "master-leo")
+                    StylistDashboardView(stylistID: store.currentStylistDashboardID)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             } else {
@@ -40,11 +64,34 @@ struct RootView: View {
             }
         }
         .animation(.snappy(duration: 0.32), value: store.currentProfile?.role)
+        .animation(.snappy(duration: 0.28), value: store.isBootstrapping)
         .preferredColorScheme(.light)
         .sheet(isPresented: $store.isPasswordResetSheetPresented) {
             PasswordResetSheet()
                 .presentationDetents([.height(430)])
                 .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+private struct HairmapLaunchLoadingView: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.985, green: 0.985, blue: 0.98)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Text("Hairmap")
+                    .font(.system(size: 42, weight: .black, design: .serif))
+                    .foregroundStyle(.black)
+
+                ProgressView()
+                    .tint(.black)
+
+                Text("同步最新資料...")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -194,6 +241,7 @@ struct CustomerShellView: View {
 
                 ChatView()
                     .tabItem { Label(CustomerTab.chat.title, systemImage: CustomerTab.chat.symbol) }
+                    .badge(store.customerUnreadMessageCount)
                     .tag(CustomerTab.chat)
 
                 UserProfileView()

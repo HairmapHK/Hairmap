@@ -13,32 +13,39 @@ struct RemoteImage: View {
     var height: CGFloat? = nil
     var cornerRadius: CGFloat = 0
 
+    private var imageURL: URL? {
+        URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     var body: some View {
-        AsyncImage(url: URL(string: urlString)) { phase in
-            switch phase {
-            case .empty:
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [HMTheme.soft, .white],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+        GeometryReader { proxy in
+            AsyncImage(url: imageURL) { phase in
+                switch phase {
+                case .empty:
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [HMTheme.soft, .white],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .overlay(ProgressView().tint(HMTheme.ink))
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-            case .failure:
-                Rectangle()
-                    .fill(HMTheme.soft)
-                    .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
-            @unknown default:
-                Rectangle().fill(HMTheme.soft)
+                        .overlay(ProgressView().tint(HMTheme.ink))
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure:
+                    Rectangle()
+                        .fill(HMTheme.soft)
+                        .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                @unknown default:
+                    Rectangle().fill(HMTheme.soft)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
-        .frame(maxWidth: .infinity)
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

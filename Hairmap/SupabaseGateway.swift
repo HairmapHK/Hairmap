@@ -162,6 +162,57 @@ final class SupabaseGateway {
         }
     }
 
+    private struct UserBlockRow: Decodable {
+        var blockedID: UUID
+
+        enum CodingKeys: String, CodingKey {
+            case blockedID = "blocked_id"
+        }
+    }
+
+    private struct UserBlockPayload: Encodable {
+        var blockerID: UUID
+        var blockedID: UUID
+        var sourceEntityType: String
+        var sourceEntityID: String
+        var reason: String
+        var details: String
+
+        enum CodingKeys: String, CodingKey {
+            case blockerID = "blocker_id"
+            case blockedID = "blocked_id"
+            case sourceEntityType = "source_entity_type"
+            case sourceEntityID = "source_entity_id"
+            case reason
+            case details
+        }
+    }
+
+    private struct ReportPayload: Encodable {
+        let reporterID: UUID
+        let entityType: String
+        let entityID: String
+        let reason: String
+        let details: String
+
+        enum CodingKeys: String, CodingKey {
+            case reporterID = "reporter_id"
+            case entityType = "entity_type"
+            case entityID = "entity_id"
+            case reason
+            case details
+        }
+    }
+
+    private struct EdgeFunctionError: LocalizedError {
+        let statusCode: Int
+        let message: String
+
+        var errorDescription: String? {
+            statusCode > 0 ? "\(message) (\(statusCode))" : message
+        }
+    }
+
     private struct ApplicationReviewPayload: Encodable {
         let status: String
         let reviewedBy: UUID
@@ -216,6 +267,55 @@ final class SupabaseGateway {
         return client.auth.authStateChanges
     }
 
+    func catalogRealtimeChanges() -> AsyncStream<Void>? {
+        guard let client else { return nil }
+        let tables = [
+            "profiles",
+            "stylists",
+            "salons",
+            "services",
+            "portfolio_works",
+            "salon_portfolio_works",
+            "reviews",
+            "bookings",
+            "messages",
+            "blocked_slots",
+            "conversation_blocks",
+            "user_blocks",
+            "inspiration_items",
+            "inspiration_comments",
+            "inspiration_reactions",
+            "inspiration_comment_reactions",
+            "inspiration_shares",
+            "stylist_applications",
+            "salon_applications",
+            "ranking_overrides"
+        ]
+
+        return AsyncStream { continuation in
+            let channel = client.channel("hairmap-live-\(UUID().uuidString)")
+            let listeners = tables.map { table in
+                let changes = channel.postgresChange(AnyAction.self, schema: "public", table: table)
+                return Task {
+                    for await _ in changes {
+                        continuation.yield(())
+                    }
+                }
+            }
+            let subscribeTask = Task {
+                try? await channel.subscribeWithError()
+            }
+
+            continuation.onTermination = { _ in
+                listeners.forEach { $0.cancel() }
+                subscribeTask.cancel()
+                Task {
+                    await client.removeChannel(channel)
+                }
+            }
+        }
+    }
+
     func currentSession() async throws -> Session? {
         guard let client else { return nil }
         return try? await client.auth.session
@@ -230,7 +330,7 @@ final class SupabaseGateway {
             data: [
                 "display_name": .string(displayName),
                 "role": .string(role.rawValue),
-                "stylist_id": .string(role == .stylist ? "master-leo" : "")
+                "stylist_id": .string("")
             ]
         )
     }
@@ -243,9 +343,18 @@ final class SupabaseGateway {
             data: [
                 "display_name": .string(displayName),
                 "role": .string(role.rawValue),
-                "stylist_id": .string(role == .stylist ? "master-leo" : "")
+                "stylist_id": .string("")
             ],
             redirectTo: settings.redirectURL
+        )
+    }
+
+    func resendSignupConfirmation(email: String) async throws {
+        guard let client, let settings else { return }
+        try await client.auth.resend(
+            email: email,
+            type: .signup,
+            emailRedirectTo: settings.redirectURL
         )
     }
 
@@ -260,6 +369,48 @@ final class SupabaseGateway {
             provider: provider,
             redirectTo: settings.redirectURL
         )
+    }
+
+    func updateAuthMetadata(displayName: String, role: UserRole, stylistID: String? = nil) async throws -> Session? {
+        guard let client else { return nil }
+        let metadata: [String: AnyJSON] = [
+            "display_name": .string(displayName),
+            "role": .string(role.rawValue),
+            "stylist_id": .string(role == .stylist ? (stylistID ?? "") : "")
+        ]
+        _ = try await client.auth.update(user: UserAttributes(data: metadata))
+        return try await client.auth.session
+    }
+
+    func signInWithAppleIDToken(idToken: String, fullName: String?, role: UserRole) async throws -> Session? {
+        guard let client else { return nil }
+
+        let session = try await client.auth.signInWithIdToken(
+            credentials: .init(
+                provider: .apple,
+                idToken: idToken
+            )
+        )
+
+        let existingDisplayName = session.user.userMetadata["display_name"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDisplayName = [
+            fullName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            existingDisplayName,
+            session.user.email,
+            "Apple Guest"
+        ]
+        .compactMap { $0 }
+        .first { !$0.isEmpty } ?? "Apple Guest"
+
+        let metadata: [String: AnyJSON] = [
+            "display_name": .string(resolvedDisplayName),
+            "role": .string(role.rawValue),
+            "stylist_id": .string("")
+        ]
+
+        _ = try await client.auth.update(user: UserAttributes(data: metadata))
+        return try await client.auth.session
     }
 
     func resetPassword(email: String) async throws {
@@ -277,11 +428,54 @@ final class SupabaseGateway {
         try? await client.auth.signOut()
     }
 
+    func deleteCurrentAccount() async throws {
+        guard let client, let settings else { return }
+        let session = try await client.auth.session
+        let endpoint = URL(string: "/functions/v1/delete-account", relativeTo: settings.url)?.absoluteURL
+        guard let endpoint else {
+            throw EdgeFunctionError(statusCode: -1, message: "刪除帳號服務網址無效")
+        }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw EdgeFunctionError(statusCode: -1, message: "刪除帳號服務沒有回應")
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw EdgeFunctionError(
+                statusCode: httpResponse.statusCode,
+                message: message?.isEmpty == false ? message! : "刪除帳號失敗"
+            )
+        }
+
+        try? await client.auth.signOut()
+    }
+
     func upsertProfile(_ profile: HairmapProfile) async throws {
         guard let client else { return }
         try await client.from("profiles")
             .upsert(profile, onConflict: "id")
             .execute()
+    }
+
+    func currentProfile() async throws -> HairmapProfile? {
+        guard let client else { return nil }
+        let session = try await client.auth.session
+        let rows: [HairmapProfile] = try await client.from("profiles")
+            .select()
+            .eq("id", value: session.user.id.uuidString)
+            .limit(1)
+            .execute()
+            .value
+        return rows.first
     }
 
     func currentAdminRole() async throws -> String? {
@@ -360,6 +554,11 @@ final class SupabaseGateway {
             .execute()
             .value) ?? []
 
+        let profiles: [HairmapProfile] = (try? await client.from("profiles")
+            .select("id,display_name,email,role,stylist_id,avatar_url")
+            .execute()
+            .value) ?? []
+
         let rankingOverrides: [RankingOverride] = (try? await client.from("ranking_overrides")
             .select()
             .eq("is_active", value: true)
@@ -369,14 +568,12 @@ final class SupabaseGateway {
 
         let stylistApplications: [StylistApplication] = (try? await client.from("stylist_applications")
             .select()
-            .eq("status", value: CatalogApplicationStatus.pending.rawValue)
             .order("created_at", ascending: false)
             .execute()
             .value) ?? []
 
         let salonApplications: [SalonApplication] = (try? await client.from("salon_applications")
             .select()
-            .eq("status", value: CatalogApplicationStatus.pending.rawValue)
             .order("created_at", ascending: false)
             .execute()
             .value) ?? []
@@ -385,6 +582,7 @@ final class SupabaseGateway {
         let likedLooks: [InspirationReactionRow]
         let likedComments: [CommentReactionRow]
         let blockedConversations: [ConversationBlockRow]
+        let blockedUsers: [UserBlockRow]
         if let session {
             likedLooks = (try? await client.from("inspiration_reactions")
                 .select("inspiration_id")
@@ -403,10 +601,16 @@ final class SupabaseGateway {
                 .eq("customer_id", value: session.user.id.uuidString)
                 .execute()
                 .value) ?? []
+            blockedUsers = (try? await client.from("user_blocks")
+                .select("blocked_id")
+                .eq("blocker_id", value: session.user.id.uuidString)
+                .execute()
+                .value) ?? []
         } else {
             likedLooks = []
             likedComments = []
             blockedConversations = []
+            blockedUsers = []
         }
 
         let bookings: [Appointment] = (try? await client.from("bookings")
@@ -417,7 +621,7 @@ final class SupabaseGateway {
 
         let messages: [ChatMessageItem] = (try? await client.from("messages")
             .select()
-            .order("sent_at", ascending: true)
+            .order("created_at", ascending: true)
             .execute()
             .value) ?? []
 
@@ -425,6 +629,11 @@ final class SupabaseGateway {
             .select()
             .execute()
             .value
+        let normalizedBlockedSlots = blockedSlots.map { slot in
+            var normalized = slot
+            normalized.startTime = slot.startTime.hmTimeKey
+            return normalized
+        }
 
         let stylists = stylistRows.map { stylist in
             var hydrated = stylist
@@ -439,10 +648,11 @@ final class SupabaseGateway {
         return CatalogPayload(
             salons: salons.isEmpty ? SeedData.salons : salons,
             stylists: stylists.isEmpty ? SeedData.stylists : stylists,
-            inspiration: inspiration.isEmpty ? SeedData.inspiration : inspiration,
+            inspiration: inspiration,
+            profiles: profiles,
             bookings: bookings,
-            messages: messages.isEmpty ? SeedData.messages : messages,
-            blockedSlots: blockedSlots,
+            messages: messages,
+            blockedSlots: normalizedBlockedSlots,
             salonWorks: salonWorks,
             rankingOverrides: rankingOverrides,
             stylistApplications: stylistApplications,
@@ -450,7 +660,8 @@ final class SupabaseGateway {
             inspirationComments: threadComments(commentRows),
             likedLookIDs: Set(likedLooks.map(\.inspirationID)),
             likedCommentIDs: Set(likedComments.map(\.commentID)),
-            blockedChatStylistIDs: Set(blockedConversations.map(\.stylistID))
+            blockedChatStylistIDs: Set(blockedConversations.map(\.stylistID)),
+            blockedUserIDs: Set(blockedUsers.map(\.blockedID))
         )
     }
 
@@ -483,7 +694,8 @@ final class SupabaseGateway {
             .replacingOccurrences(of: "/", with: "-")
         let fileExtension = mediaKind == .video ? "mov" : "jpg"
         let contentType = mediaKind == .video ? "video/quicktime" : "image/jpeg"
-        let path = "uploads/\(session.user.id.uuidString)/\(safeFolder)/\(UUID().uuidString).\(fileExtension)"
+        let ownerFolder = session.user.id.uuidString.lowercased()
+        let path = "uploads/\(ownerFolder)/\(safeFolder)/\(UUID().uuidString).\(fileExtension)"
 
         try await client.storage
             .from(Self.mediaBucket)
@@ -563,6 +775,7 @@ final class SupabaseGateway {
             let category: String
             let authorID: UUID
             let authorName: String
+            let authorAvatar: String
             let studio: String
             let mediaURLs: [String]
             let mediaKinds: [String]
@@ -587,6 +800,7 @@ final class SupabaseGateway {
                 case category
                 case authorID = "author_id"
                 case authorName = "author_name"
+                case authorAvatar = "author_avatar"
                 case studio
                 case mediaURLs = "media_urls"
                 case mediaKinds = "media_kinds"
@@ -607,15 +821,16 @@ final class SupabaseGateway {
             stylistID: look.stylistID ?? "master-leo",
             title: look.title,
             salonName: look.studio,
-            location: "香港",
+            location: look.location,
             tags: look.tags,
             imageURL: primaryURL,
             category: look.category,
             authorID: authorID,
             authorName: look.author,
+            authorAvatar: look.authorAvatarURL,
             studio: look.studio,
             mediaURLs: mediaURLs.isEmpty ? [primaryURL] : mediaURLs,
-            mediaKinds: mediaKinds.map(\.rawValue),
+            mediaKinds: mediaKinds.isEmpty ? [look.mediaKind.rawValue] : mediaKinds.map(\.rawValue),
             faceShape: look.faceShape,
             hairType: look.hairType,
             specs: look.specs,
@@ -728,17 +943,23 @@ final class SupabaseGateway {
     }
 
     func updateProfileDisplayName(_ displayName: String) async throws {
+        try await updateProfile(displayName: displayName, avatarURL: nil)
+    }
+
+    func updateProfile(displayName: String? = nil, avatarURL: String? = nil) async throws {
         guard let client else { return }
         let session = try await client.auth.session
         struct Payload: Encodable {
-            let displayName: String
+            let displayName: String?
+            let avatarURL: String?
 
             enum CodingKeys: String, CodingKey {
                 case displayName = "display_name"
+                case avatarURL = "avatar_url"
             }
         }
         try await client.from("profiles")
-            .update(Payload(displayName: displayName))
+            .update(Payload(displayName: displayName, avatarURL: avatarURL))
             .eq("id", value: session.user.id.uuidString)
             .execute()
     }
@@ -818,12 +1039,12 @@ final class SupabaseGateway {
         guard let client else { return }
         let session = try await client.auth.session
         let application = StylistApplication(
-            id: "stylist-application-\(stylist.id)",
+            id: "stylist-application-\(stylist.id)-\(UUID().uuidString.lowercased())",
             submittedBy: session.user.id,
             stylist: stylist
         )
         try await client.from("stylist_applications")
-            .upsert(application, onConflict: "id")
+            .insert(application)
             .execute()
     }
 
@@ -831,13 +1052,13 @@ final class SupabaseGateway {
         guard let client else { return }
         let session = try await client.auth.session
         let application = SalonApplication(
-            id: "salon-application-\(salon.id)",
+            id: "salon-application-\(salon.id)-\(UUID().uuidString.lowercased())",
             submittedBy: session.user.id,
             salon: salon,
             works: works
         )
         try await client.from("salon_applications")
-            .upsert(application, onConflict: "id")
+            .insert(application)
             .execute()
     }
 
@@ -845,6 +1066,7 @@ final class SupabaseGateway {
         let stylist = application.asStylist()
         try await saveStylist(stylist)
         try await setStylistApplicationStatus(id: application.id, status: .approved)
+        try await linkApprovedStylistProfile(application)
     }
 
     func rejectStylistApplication(_ application: StylistApplication) async throws {
@@ -859,6 +1081,36 @@ final class SupabaseGateway {
 
     func rejectSalonApplication(_ application: SalonApplication) async throws {
         try await setSalonApplicationStatus(id: application.id, status: .rejected)
+    }
+
+    func markStylistApplicationsHidden(stylistID: String) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let payload = ApplicationReviewPayload(
+            status: CatalogApplicationStatus.hidden.rawValue,
+            reviewedBy: session.user.id,
+            reviewedAt: Self.iso8601.string(from: Date())
+        )
+        try await client.from("stylist_applications")
+            .update(payload)
+            .eq("stylist_id", value: stylistID)
+            .eq("status", value: CatalogApplicationStatus.approved.rawValue)
+            .execute()
+    }
+
+    func markSalonApplicationsHidden(salonID: String) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let payload = ApplicationReviewPayload(
+            status: CatalogApplicationStatus.hidden.rawValue,
+            reviewedBy: session.user.id,
+            reviewedAt: Self.iso8601.string(from: Date())
+        )
+        try await client.from("salon_applications")
+            .update(payload)
+            .eq("salon_id", value: salonID)
+            .eq("status", value: CatalogApplicationStatus.approved.rawValue)
+            .execute()
     }
 
     private func setStylistApplicationStatus(id: String, status: CatalogApplicationStatus) async throws {
@@ -886,6 +1138,32 @@ final class SupabaseGateway {
         try await client.from("salon_applications")
             .update(payload)
             .eq("id", value: id)
+            .execute()
+    }
+
+    private func linkApprovedStylistProfile(_ application: StylistApplication) async throws {
+        guard let client else { return }
+        struct Payload: Encodable {
+            let displayName: String
+            let stylistID: String
+            let avatarURL: String
+
+            enum CodingKeys: String, CodingKey {
+                case displayName = "display_name"
+                case stylistID = "stylist_id"
+                case avatarURL = "avatar_url"
+            }
+        }
+
+        try await client.from("profiles")
+            .update(
+                Payload(
+                    displayName: application.name,
+                    stylistID: application.stylistID,
+                    avatarURL: application.avatarURL
+                )
+            )
+            .eq("id", value: application.ownerID.uuidString)
             .execute()
     }
 
@@ -1023,18 +1301,90 @@ final class SupabaseGateway {
         }
     }
 
+    func setUserBlocked(
+        blockedUserID: UUID,
+        sourceEntityType: ReportEntityType,
+        sourceEntityID: String,
+        reason: String,
+        details: String,
+        isBlocked: Bool
+    ) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+
+        if isBlocked {
+            let payload = UserBlockPayload(
+                blockerID: session.user.id,
+                blockedID: blockedUserID,
+                sourceEntityType: sourceEntityType.rawValue,
+                sourceEntityID: sourceEntityID,
+                reason: reason,
+                details: details
+            )
+
+            try await client.from("user_blocks")
+                .upsert(payload, onConflict: "blocker_id,blocked_id")
+                .execute()
+
+            let reportDetails = [
+                details,
+                "Blocked user: \(blockedUserID.uuidString)",
+                "Source: \(sourceEntityType.rawValue):\(sourceEntityID)"
+            ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+
+            let reportPayload = ReportPayload(
+                reporterID: session.user.id,
+                entityType: sourceEntityType.rawValue,
+                entityID: sourceEntityID,
+                reason: reason,
+                details: reportDetails
+            )
+
+            try await client.from("reports")
+                .insert(reportPayload)
+                .execute()
+        } else {
+            try await client.from("user_blocks")
+                .delete()
+                .eq("blocker_id", value: session.user.id.uuidString)
+                .eq("blocked_id", value: blockedUserID.uuidString)
+                .execute()
+        }
+    }
+
+    func createReport(entityType: ReportEntityType, entityID: String, reason: String, details: String) async throws {
+        guard let client else { return }
+        let session = try await client.auth.session
+        let payload = ReportPayload(
+            reporterID: session.user.id,
+            entityType: entityType.rawValue,
+            entityID: entityID,
+            reason: reason,
+            details: details
+        )
+
+        try await client.from("reports")
+            .insert(payload)
+            .execute()
+    }
+
     func toggleBlockedSlot(_ slot: BlockedSlot, shouldBlock: Bool) async throws {
         guard let client else { return }
+        var normalizedSlot = slot
+        normalizedSlot.startTime = slot.startTime.hmTimeKey
         if shouldBlock {
             try await client.from("blocked_slots")
-                .insert(slot)
+                .upsert(normalizedSlot, onConflict: "stylist_id,work_date,start_time")
                 .execute()
         } else {
             try await client.from("blocked_slots")
                 .delete()
-                .eq("stylist_id", value: slot.stylistID)
-                .eq("work_date", value: slot.workDate)
-                .eq("start_time", value: slot.startTime)
+                .eq("stylist_id", value: normalizedSlot.stylistID)
+                .eq("work_date", value: normalizedSlot.workDate)
+                .eq("start_time", value: normalizedSlot.startTime)
                 .execute()
         }
     }

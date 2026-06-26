@@ -93,7 +93,7 @@ privacy_tracking="$(plist_value Hairmap/PrivacyInfo.xcprivacy NSPrivacyTracking)
 [[ "$export_bundle_id" == "com.involution.Hairmap" ]] || fail "ExportOptions bundle id mismatch"
 [[ "$export_method" == "app-store-connect" ]] || fail "ExportOptions method must be app-store-connect"
 [[ "$export_destination" == "upload" ]] || fail "ExportOptions destination must be upload"
-[[ "$export_team" == "MXV8VYWG8W" ]] || fail "ExportOptions teamID mismatch"
+[[ "$export_team" == "9AY6FR5JDC" ]] || fail "ExportOptions teamID mismatch"
 [[ "$uses_encryption" == "false" ]] || fail "ITSAppUsesNonExemptEncryption should remain false unless encryption usage changes"
 [[ "$privacy_tracking" == "false" ]] || fail "Privacy manifest says tracking is enabled; update ATT/App Privacy before release"
 

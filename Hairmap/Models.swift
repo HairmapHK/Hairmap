@@ -49,6 +49,17 @@ enum CustomerRoute: Hashable {
     case salon(String)
 }
 
+enum ReportEntityType: String, Codable, CaseIterable, Identifiable, Hashable {
+    case stylist
+    case salon
+    case review
+    case inspiration
+    case message
+    case profile
+
+    var id: String { rawValue }
+}
+
 enum BookingStatus: String, Codable, CaseIterable, Identifiable, Hashable {
     case pending
     case accepted
@@ -75,6 +86,23 @@ struct HairmapProfile: Identifiable, Codable, Hashable {
     var email: String
     var role: UserRole
     var stylistID: String?
+    var avatarURL: String = ""
+
+    init(
+        id: UUID,
+        displayName: String,
+        email: String,
+        role: UserRole,
+        stylistID: String? = nil,
+        avatarURL: String = ""
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.email = email
+        self.role = role
+        self.stylistID = stylistID
+        self.avatarURL = avatarURL
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -82,6 +110,17 @@ struct HairmapProfile: Identifiable, Codable, Hashable {
         case email
         case role
         case stylistID = "stylist_id"
+        case avatarURL = "avatar_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        email = try container.decode(String.self, forKey: .email)
+        role = try container.decode(UserRole.self, forKey: .role)
+        stylistID = try container.decodeIfPresent(String.self, forKey: .stylistID)
+        avatarURL = try container.decodeIfPresent(String.self, forKey: .avatarURL) ?? ""
     }
 }
 
@@ -189,6 +228,7 @@ struct Stylist: Identifiable, Codable, Hashable {
     var experience: String
     var specialties: [String]
     var avatarURL: String
+    var phone: String
     var bio: String
     var basePrice: Int
     var works: [PortfolioWork]
@@ -210,6 +250,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         case experience
         case specialties
         case avatarURL = "avatar_url"
+        case phone
         case bio
         case basePrice = "base_price"
         case isActive = "is_active"
@@ -229,6 +270,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         experience: String,
         specialties: [String],
         avatarURL: String,
+        phone: String = "",
         bio: String,
         basePrice: Int,
         works: [PortfolioWork] = [],
@@ -249,6 +291,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         self.experience = experience
         self.specialties = specialties
         self.avatarURL = avatarURL
+        self.phone = phone
         self.bio = bio
         self.basePrice = basePrice
         self.works = works
@@ -272,6 +315,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         experience = try container.decode(String.self, forKey: .experience)
         specialties = try container.decode([String].self, forKey: .specialties)
         avatarURL = try container.decode(String.self, forKey: .avatarURL)
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
         bio = try container.decodeIfPresent(String.self, forKey: .bio) ?? ""
         basePrice = try container.decodeIfPresent(Int.self, forKey: .basePrice) ?? 0
         works = []
@@ -283,16 +327,24 @@ struct Stylist: Identifiable, Codable, Hashable {
     }
 }
 
-enum CatalogApplicationStatus: String, Codable, Hashable {
+enum CatalogApplicationStatus: String, Codable, Hashable, CaseIterable, Identifiable {
     case pending
     case approved
     case rejected
+    case hidden
+
+    var id: String { rawValue }
+
+    static var adminDisplayOrder: [CatalogApplicationStatus] {
+        [.pending, .approved, .rejected, .hidden]
+    }
 
     var title: String {
         switch self {
         case .pending: "待審批"
         case .approved: "已批准"
         case .rejected: "已拒絕"
+        case .hidden: "已下架"
         }
     }
 }
@@ -311,6 +363,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
     var experience: String
     var specialties: [String]
     var avatarURL: String
+    var phone: String?
     var bio: String
     var basePrice: Int
     var servicesPayload: [ServiceItem]
@@ -332,6 +385,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         case experience
         case specialties
         case avatarURL = "avatar_url"
+        case phone
         case bio
         case basePrice = "base_price"
         case servicesPayload = "services_payload"
@@ -354,6 +408,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         experience = stylist.experience
         specialties = stylist.specialties
         avatarURL = stylist.avatarURL
+        phone = stylist.phone
         bio = stylist.bio
         basePrice = stylist.basePrice
         servicesPayload = stylist.services
@@ -375,6 +430,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
             experience: experience,
             specialties: specialties,
             avatarURL: avatarURL,
+            phone: phone ?? "",
             bio: bio,
             basePrice: basePrice,
             works: worksPayload,
@@ -470,6 +526,7 @@ struct InspirationItem: Identifiable, Codable, Hashable {
     var category: String
     var authorID: UUID?
     var authorName: String
+    var authorAvatar: String
     var studio: String
     var mediaURLs: [String]
     var mediaKinds: [String]
@@ -493,6 +550,7 @@ struct InspirationItem: Identifiable, Codable, Hashable {
         case category
         case authorID = "author_id"
         case authorName = "author_name"
+        case authorAvatar = "author_avatar"
         case studio
         case mediaURLs = "media_urls"
         case mediaKinds = "media_kinds"
@@ -517,6 +575,7 @@ struct InspirationItem: Identifiable, Codable, Hashable {
         category: String,
         authorID: UUID? = nil,
         authorName: String = "",
+        authorAvatar: String = "",
         studio: String = "",
         mediaURLs: [String] = [],
         mediaKinds: [String] = [],
@@ -539,6 +598,7 @@ struct InspirationItem: Identifiable, Codable, Hashable {
         self.category = category
         self.authorID = authorID
         self.authorName = authorName
+        self.authorAvatar = authorAvatar
         self.studio = studio
         self.mediaURLs = mediaURLs
         self.mediaKinds = mediaKinds
@@ -564,6 +624,7 @@ struct InspirationItem: Identifiable, Codable, Hashable {
         category = try container.decode(String.self, forKey: .category)
         authorID = try container.decodeIfPresent(UUID.self, forKey: .authorID)
         authorName = try container.decodeIfPresent(String.self, forKey: .authorName) ?? ""
+        authorAvatar = try container.decodeIfPresent(String.self, forKey: .authorAvatar) ?? ""
         studio = try container.decodeIfPresent(String.self, forKey: .studio) ?? ""
         mediaURLs = try container.decodeIfPresent([String].self, forKey: .mediaURLs) ?? []
         mediaKinds = try container.decodeIfPresent([String].self, forKey: .mediaKinds) ?? []
@@ -593,8 +654,11 @@ struct SharedLookMedia: Identifiable, Hashable {
 struct SharedHairLook: Identifiable, Hashable {
     var id: String
     var title: String
+    var authorID: UUID? = nil
     var author: String
+    var authorAvatarURL: String = ""
     var studio: String
+    var location: String = "香港"
     var tags: [String]
     var imageURL: String?
     var mediaData: Data?
@@ -711,6 +775,7 @@ struct ChatMessageItem: Identifiable, Codable, Hashable {
     var senderName: String
     var text: String
     var sentAt: String
+    var createdAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -720,7 +785,67 @@ struct ChatMessageItem: Identifiable, Codable, Hashable {
         case senderName = "sender_name"
         case text
         case sentAt = "sent_at"
+        case createdAt = "created_at"
     }
+
+    static let photoPrefix = "hairmap-photo::"
+
+    var photoURL: String? {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.hasPrefix(Self.photoPrefix) else { return nil }
+        return String(clean.dropFirst(Self.photoPrefix.count)).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    var displayText: String {
+        photoURL == nil ? text : "已分享髮型參考照片"
+    }
+
+    var displayTime: String {
+        if let date = chronologicalDate, createdAt != nil {
+            return DateFormatter.hmTime.string(from: date)
+        }
+        return sentAt
+    }
+
+    var chronologicalDate: Date? {
+        if let createdAt,
+           let date = Self.iso8601.date(from: createdAt) ?? Self.fractionalISO8601.date(from: createdAt) {
+            return date
+        }
+        if let date = Self.iso8601.date(from: sentAt) ?? Self.fractionalISO8601.date(from: sentAt) {
+            return date
+        }
+        if let timeOnly = DateFormatter.hmTime.date(from: sentAt.hmTimeKey) {
+            let now = Date()
+            let calendar = Calendar.hairmap
+            let timeParts = calendar.dateComponents([.hour, .minute], from: timeOnly)
+            var dayParts = calendar.dateComponents([.year, .month, .day], from: now)
+            dayParts.hour = timeParts.hour
+            dayParts.minute = timeParts.minute
+            return calendar.date(from: dayParts)
+        }
+        return nil
+    }
+
+    var sortKey: TimeInterval {
+        chronologicalDate?.timeIntervalSince1970 ?? 0
+    }
+
+    static func photoMessageText(url: String) -> String {
+        "\(photoPrefix)\(url)"
+    }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let fractionalISO8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 struct BlockedSlot: Identifiable, Codable, Hashable {
@@ -761,6 +886,7 @@ struct CatalogPayload {
     var salons: [Salon]
     var stylists: [Stylist]
     var inspiration: [InspirationItem]
+    var profiles: [HairmapProfile] = []
     var bookings: [Appointment]
     var messages: [ChatMessageItem]
     var blockedSlots: [BlockedSlot]
@@ -772,4 +898,5 @@ struct CatalogPayload {
     var likedLookIDs: Set<String> = []
     var likedCommentIDs: Set<String> = []
     var blockedChatStylistIDs: Set<String> = []
+    var blockedUserIDs: Set<UUID> = []
 }

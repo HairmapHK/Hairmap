@@ -12,6 +12,7 @@ struct StylistDashboardView: View {
 
     @State private var profileName = ""
     @State private var profileTitle = ""
+    @State private var profilePhone = ""
     @State private var profileBio = ""
     @State private var profileExperience = "10年以上與合夥"
     @State private var profileLanguages = "中 / 英"
@@ -27,11 +28,13 @@ struct StylistDashboardView: View {
     @State private var customWorkURL = ""
     @State private var instagramURL = "https://images.unsplash.com/portfolio-balayage-hairs"
     @State private var pickedAvatarItem: PhotosPickerItem?
-    @State private var pickedWorkItem: PhotosPickerItem?
+    @State private var pickedWorkItems: [PhotosPickerItem] = []
     @State private var uploadedAvatarData: Data?
-    @State private var uploadedWorkData: Data?
+    @State private var profileSubmissionNotice = ""
+    @State private var isProfileSubmissionAlertPresented = false
 
-    private var stylist: Stylist { store.stylist(id: stylistID) }
+    private var stylist: Stylist { store.dashboardStylist(id: stylistID) }
+    private var hasApprovedProfile: Bool { store.isApprovedDashboardStylist(id: stylistID) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -54,7 +57,7 @@ struct StylistDashboardView: View {
                         .frame(maxHeight: .infinity)
                         .background(DashboardPalette.canvas)
 
-                    DashboardBottomBar(selection: $tab) {
+                    DashboardBottomBar(selection: $tab, stylistID: stylistID) {
                         selectedThreadID = nil
                     }
                     .padding(.bottom, max(proxy.safeAreaInsets.bottom, 8))
@@ -68,57 +71,77 @@ struct StylistDashboardView: View {
         }
         .preferredColorScheme(.light)
         .tint(.black)
-        .onAppear(perform: loadProfileIfNeeded)
+        .onAppear {
+            if !hasApprovedProfile {
+                tab = .profile
+            }
+            loadProfileIfNeeded()
+        }
         .onChange(of: pickedAvatarItem) { _, newItem in
             Task { await loadAvatar(newItem) }
         }
-        .onChange(of: pickedWorkItem) { _, newItem in
-            Task { await loadPortfolioWork(newItem) }
+        .onChange(of: pickedWorkItems) { _, newItems in
+            Task { await loadPortfolioWorks(newItems) }
+        }
+        .alert("提交成功", isPresented: $isProfileSubmissionAlertPresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("已提交，等待審批。審批通過後才會公開到 Hairmap 顧客端。")
         }
     }
 
     @ViewBuilder
     private var tabContent: some View {
-        switch tab {
-        case .bookings:
-            StylistTodayBookingsPage(stylistID: stylistID) { threadID in
-                selectedThreadID = threadID
+        if !hasApprovedProfile && tab != .profile {
+            StylistProfileRequiredPage {
                 withAnimation(.snappy(duration: 0.22)) {
-                    tab = .messages
+                    tab = .profile
                 }
             }
-        case .messages:
-            StylistMessagesWorkspace(
-                stylistID: stylistID,
-                selectedThreadID: $selectedThreadID
-            )
-        case .schedule:
-            StylistScheduleWorkspace(stylistID: stylistID)
-        case .profile:
-            StylistProfileWorkspace(
-                stylistID: stylistID,
-                name: $profileName,
-                title: $profileTitle,
-                bio: $profileBio,
-                experience: $profileExperience,
-                languages: $profileLanguages,
-                avatarURL: $profileAvatarURL,
-                services: $profileServices,
-                selectedTags: $selectedTags,
-                works: $profileWorks,
-                customServiceName: $customServiceName,
-                customServiceCategory: $customServiceCategory,
-                customServiceDescription: $customServiceDescription,
-                customServicePrice: $customServicePrice,
-                customWorkTitle: $customWorkTitle,
-                customWorkURL: $customWorkURL,
-                instagramURL: $instagramURL,
-                pickedAvatarItem: $pickedAvatarItem,
-                pickedWorkItem: $pickedWorkItem,
-                uploadedAvatarData: uploadedAvatarData,
-                uploadedWorkData: uploadedWorkData,
-                onSave: saveProfile
-            )
+        } else {
+            switch tab {
+            case .bookings:
+                StylistTodayBookingsPage(stylistID: stylistID) { threadID in
+                    selectedThreadID = threadID
+                    withAnimation(.snappy(duration: 0.22)) {
+                        tab = .messages
+                    }
+                }
+            case .messages:
+                StylistMessagesWorkspace(
+                    stylistID: stylistID,
+                    selectedThreadID: $selectedThreadID
+                )
+            case .schedule:
+                StylistScheduleWorkspace(stylistID: stylistID)
+            case .profile:
+                StylistProfileWorkspace(
+                    stylistID: stylistID,
+                    hasApprovedProfile: hasApprovedProfile,
+                    name: $profileName,
+                    title: $profileTitle,
+                    phone: $profilePhone,
+                    bio: $profileBio,
+                    experience: $profileExperience,
+                    languages: $profileLanguages,
+                    avatarURL: $profileAvatarURL,
+                    services: $profileServices,
+                    selectedTags: $selectedTags,
+                    works: $profileWorks,
+                    customServiceName: $customServiceName,
+                    customServiceCategory: $customServiceCategory,
+                    customServiceDescription: $customServiceDescription,
+                    customServicePrice: $customServicePrice,
+                    customWorkTitle: $customWorkTitle,
+                    customWorkURL: $customWorkURL,
+                    instagramURL: $instagramURL,
+                    pickedAvatarItem: $pickedAvatarItem,
+                    pickedWorkItems: $pickedWorkItems,
+                    uploadedAvatarData: uploadedAvatarData,
+                    applicationNotice: profileSubmissionNotice,
+                    onSubmitForReview: submitStylistProfileForReview
+                )
+            }
         }
     }
 
@@ -126,15 +149,17 @@ struct StylistDashboardView: View {
         guard !didLoadProfile else { return }
         didLoadProfile = true
         let stylist = stylist
-        profileName = stylist.name
-        profileTitle = stylist.title
-        profileBio = stylist.bio
+        let cleanProfileName = store.currentProfile?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        profileName = hasApprovedProfile ? stylist.name : (cleanProfileName == "待建立髮型師" ? "" : cleanProfileName)
+        profileTitle = hasApprovedProfile ? stylist.title : ""
+        profilePhone = hasApprovedProfile ? stylist.phone : ""
+        profileBio = hasApprovedProfile ? stylist.bio : ""
         profileExperience = stylist.experience
         profileLanguages = stylist.languages
-        profileAvatarURL = stylist.avatarURL
-        selectedTags = Set(stylist.specialties)
-        profileWorks = stylist.works
-        profileServices = stylist.services.map { service in
+        profileAvatarURL = hasApprovedProfile ? stylist.avatarURL : (store.currentProfile?.avatarURL.nilIfEmpty ?? stylist.avatarURL)
+        selectedTags = hasApprovedProfile ? Set(stylist.specialties) : ["挑染專家", "經典剪髮"]
+        profileWorks = hasApprovedProfile ? stylist.works : []
+        let loadedServices = stylist.services.map { service in
             DashboardServiceDraft(
                 id: service.id,
                 name: service.name,
@@ -144,7 +169,10 @@ struct StylistDashboardView: View {
                 price: service.price,
                 isSelected: true
             )
-        } + DashboardServiceDraft.optionalDefaults(stylistID: stylistID)
+        }
+        profileServices = loadedServices.isEmpty
+            ? DashboardServiceDraft.starterDefaults(stylistID: stylistID)
+            : loadedServices + DashboardServiceDraft.optionalDefaults(stylistID: stylistID)
     }
 
     private func loadAvatar(_ item: PhotosPickerItem?) async {
@@ -155,32 +183,64 @@ struct StylistDashboardView: View {
         }
     }
 
-    private func loadPortfolioWork(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-        uploadedWorkData = data
-        if let savedURL = saveDashboardUploadedImage(data, prefix: "dashboard-work") {
-            let title = customWorkTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            profileWorks.insert(
+    private func loadPortfolioWorks(_ items: [PhotosPickerItem]) async {
+        guard !items.isEmpty else { return }
+        let availableSlots = max(0, 10 - profileWorks.count)
+        guard availableSlots > 0 else {
+            pickedWorkItems = []
+            return
+        }
+
+        let title = customWorkTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        var newWorks: [PortfolioWork] = []
+
+        for (index, item) in items.prefix(availableSlots).enumerated() {
+            guard
+                let data = try? await item.loadTransferable(type: Data.self),
+                let savedURL = saveDashboardUploadedImage(data, prefix: "dashboard-work")
+            else { continue }
+
+            let defaultTitle = items.count == 1 ? "自訂上載作品" : "自訂上載作品 \(index + 1)"
+            let workTitle = title.isEmpty
+                ? defaultTitle
+                : (items.count == 1 ? title : "\(title) \(index + 1)")
+            newWorks.append(
                 PortfolioWork(
-                    id: "dash_work_\(Int(Date().timeIntervalSince1970 * 1000))",
+                    id: "dash_work_\(UUID().uuidString)",
                     stylistID: stylistID,
-                    title: title.isEmpty ? "自訂上載作品" : title,
+                    title: workTitle,
                     imageURL: savedURL
-                ),
-                at: 0
+                )
             )
+        }
+
+        if !newWorks.isEmpty {
+            profileWorks.insert(contentsOf: newWorks, at: 0)
             customWorkTitle = ""
         }
+        pickedWorkItems = []
     }
 
     private func saveProfile() {
-        Task { await saveProfileAsync() }
+        submitStylistProfileForReview()
     }
 
-    private func saveProfileAsync() async {
+    private func submitStylistProfileForReview() {
+        Task {
+            let draft = await editedStylistDraft()
+            let didSubmit = await store.submitStylistApplication(draft)
+            if didSubmit {
+                profileSubmissionNotice = "已提交，等待審批"
+                isProfileSubmissionAlertPresented = true
+            }
+        }
+    }
+
+    private func editedStylistDraft() async -> Stylist {
         var updated = stylist
         updated.name = profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? updated.name : profileName
         updated.title = profileTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? updated.title : profileTitle
+        updated.phone = profilePhone.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.bio = profileBio
         updated.experience = profileExperience
         updated.languages = profileLanguages
@@ -201,8 +261,7 @@ struct StylistDashboardView: View {
                 )
             }
         updated.works = await store.uploadPortfolioWorksIfNeeded(profileWorks, folder: "dashboard-portfolio")
-
-        await store.saveStylist(updated)
+        return updated
     }
 }
 
@@ -219,7 +278,7 @@ private enum StylistWorkTab: CaseIterable, Identifiable, Hashable {
         case .bookings: "今日預約"
         case .messages: "顧客訊息"
         case .schedule: "檔期管理"
-        case .profile: "我的檔案"
+        case .profile: "個人檔案"
         }
     }
 
@@ -326,8 +385,14 @@ private struct DashboardSyncBar: View {
 }
 
 private struct DashboardBottomBar: View {
+    @Environment(HairmapStore.self) private var store
     @Binding var selection: StylistWorkTab
+    let stylistID: String
     let resetNestedRoute: () -> Void
+
+    private var hasCustomerMessage: Bool {
+        store.stylistUnreadMessageCount(stylistID: stylistID) > 0
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -342,7 +407,7 @@ private struct DashboardBottomBar: View {
                         ZStack(alignment: .topTrailing) {
                             Image(systemName: tab.symbol)
                                 .font(.system(size: 20, weight: selection == tab ? .semibold : .regular))
-                            if tab == .messages {
+                            if tab == .messages && hasCustomerMessage {
                                 Circle()
                                     .fill(Color(red: 0.94, green: 0.05, blue: 0.22))
                                     .frame(width: 7, height: 7)
@@ -411,12 +476,57 @@ private struct DashboardSectionHeader: View {
     }
 }
 
+private struct StylistProfileRequiredPage: View {
+    let openProfile: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer(minLength: 48)
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 46, weight: .bold))
+                .foregroundStyle(DashboardPalette.gold)
+            VStack(spacing: 8) {
+                Text("請先建立髮型師檔案")
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundStyle(.black)
+                Text("完成姓名、頭像、服務項目和作品集後，提交給管理員審批。批准後才會開放預約、訊息與檔期管理。")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 28)
+            }
+            Button(action: openProfile) {
+                Text("立即填寫個人檔案")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 220, height: 50)
+                    .background(Color.black, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(PressableButtonStyle())
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DashboardPalette.canvas)
+    }
+}
+
 private struct StylistTodayBookingsPage: View {
     @Environment(HairmapStore.self) private var store
     let stylistID: String
     let openThread: (String) -> Void
 
-    @State private var rows = DashboardBookingRow.demo
+    private var rows: [DashboardBookingRow] {
+        store.bookings
+            .filter { $0.stylistID == stylistID && $0.status != .cancelled && $0.status != .completed }
+            .sorted {
+                if $0.bookingDate == $1.bookingDate {
+                    return $0.startTime < $1.startTime
+                }
+                return $0.bookingDate < $1.bookingDate
+            }
+            .map(DashboardBookingRow.init)
+    }
 
     private var pendingRows: [DashboardBookingRow] {
         rows.filter { $0.status == .pending }
@@ -435,26 +545,34 @@ private struct StylistTodayBookingsPage: View {
                     trailing: "\(rows.count) 堂待辦"
                 )
 
-                DashboardBookingGroupTitle(color: DashboardPalette.gold, title: "待確認預約", count: pendingRows.count)
-                ForEach(pendingRows) { row in
-                    DashboardBookingCard(
-                        row: row,
-                        accent: DashboardPalette.gold,
-                        confirmTitle: "確認預約",
-                        onMessage: { openThread(row.threadID) },
-                        onConfirm: { update(row, to: .accepted) }
+                if rows.isEmpty {
+                    DashboardEmptyNotice(
+                        systemImage: "calendar.badge.clock",
+                        title: "暫時沒有預約",
+                        message: "顧客完成預約後，會即時同步到這裡。"
                     )
-                }
+                } else {
+                    DashboardBookingGroupTitle(color: DashboardPalette.gold, title: "待確認預約", count: pendingRows.count)
+                    ForEach(pendingRows) { row in
+                        DashboardBookingCard(
+                            row: row,
+                            accent: DashboardPalette.gold,
+                            confirmTitle: "確認預約",
+                            onMessage: { openThread(row.threadID) },
+                            onConfirm: { update(row, to: .accepted) }
+                        )
+                    }
 
-                DashboardBookingGroupTitle(color: DashboardPalette.green, title: "已確認預約", count: acceptedRows.count)
-                ForEach(acceptedRows) { row in
-                    DashboardBookingCard(
-                        row: row,
-                        accent: DashboardPalette.green,
-                        confirmTitle: "完成服務",
-                        onMessage: { openThread(row.threadID) },
-                        onConfirm: { update(row, to: .completed) }
-                    )
+                    DashboardBookingGroupTitle(color: DashboardPalette.green, title: "已確認預約", count: acceptedRows.count)
+                    ForEach(acceptedRows) { row in
+                        DashboardBookingCard(
+                            row: row,
+                            accent: DashboardPalette.green,
+                            confirmTitle: "完成服務",
+                            onMessage: { openThread(row.threadID) },
+                            onConfirm: { update(row, to: .completed) }
+                        )
+                    }
                 }
             }
             .padding(.horizontal, 18)
@@ -462,29 +580,15 @@ private struct StylistTodayBookingsPage: View {
             .padding(.bottom, 28)
         }
         .background(DashboardPalette.canvas)
-        .onAppear(perform: mergeStoreBookings)
-    }
-
-    private func mergeStoreBookings() {
-        let liveRows = store.bookings
-            .filter { $0.stylistID == stylistID && $0.status != .cancelled && $0.status != .completed }
-            .map { booking in
-                DashboardBookingRow(booking: booking)
+        .task(id: stylistID) {
+            while !Task.isCancelled {
+                await store.refreshCatalog()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
-
-        guard !liveRows.isEmpty else { return }
-        var merged = liveRows
-        for row in rows where !merged.contains(where: { $0.id == row.id }) {
-            merged.append(row)
         }
-        rows = merged
     }
 
     private func update(_ row: DashboardBookingRow, to status: BookingStatus) {
-        if let index = rows.firstIndex(where: { $0.id == row.id }) {
-            rows[index].status = status
-        }
-
         if let booking = store.bookings.first(where: { $0.id.uuidString == row.id }) {
             Task { await store.updateBooking(booking, status: status) }
         }
@@ -507,6 +611,33 @@ private struct DashboardBookingGroupTitle: View {
             Spacer()
         }
         .padding(.top, 4)
+    }
+}
+
+private struct DashboardEmptyNotice: View {
+    let systemImage: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(DashboardPalette.gold)
+            Text(title)
+                .font(.system(size: 17, weight: .black))
+                .foregroundStyle(.black)
+            Text(message)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 16)
+        .background(.white, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DashboardPalette.line, lineWidth: 1))
     }
 }
 
@@ -599,7 +730,7 @@ private struct DashboardBookingRow: Identifiable, Hashable {
 
     init(booking: Appointment) {
         id = booking.id.uuidString
-        threadID = "thread-alex"
+        threadID = booking.customerID?.uuidString ?? booking.id.uuidString
         timeSlot = "\(booking.startTime) - \(booking.endTime)"
         clientName = booking.clientName
         phone = booking.clientPhone
@@ -608,23 +739,6 @@ private struct DashboardBookingRow: Identifiable, Hashable {
         status = booking.status
     }
 
-    init(id: String, threadID: String, timeSlot: String, clientName: String, phone: String, service: String, price: Int, status: BookingStatus) {
-        self.id = id
-        self.threadID = threadID
-        self.timeSlot = timeSlot
-        self.clientName = clientName
-        self.phone = phone
-        self.service = service
-        self.price = price
-        self.status = status
-    }
-
-    static let demo = [
-        DashboardBookingRow(id: "demo-lily", threadID: "thread-alex", timeSlot: "09:30 - 11:00", clientName: "廖小莉 (Lily)", phone: "+852 9112 3456", service: "招牌剪髮 & 頭皮舒壓洗", price: 120, status: .pending),
-        DashboardBookingRow(id: "demo-jane", threadID: "thread-mandy", timeSlot: "18:00 - 19:30", clientName: "王阿珍 (Jane)", phone: "+852 9876 5432", service: "巴西生命果抗毛躁護髮", price: 180, status: .pending),
-        DashboardBookingRow(id: "demo-chris", threadID: "thread-chris", timeSlot: "11:00 - 13:00", clientName: "陳俊言 (Chris)", phone: "+852 6224 8890", service: "自然漸層推剪 & 特色漸層染", price: 260, status: .accepted),
-        DashboardBookingRow(id: "demo-mandy", threadID: "thread-mandy", timeSlot: "14:30 - 17:30", clientName: "Mandy Lee", phone: "+852 6022 1834", service: "頂級日系高感立體單色染髮", price: 150, status: .accepted)
-    ]
 }
 
 private struct StylistMessagesWorkspace: View {
@@ -632,13 +746,44 @@ private struct StylistMessagesWorkspace: View {
     let stylistID: String
     @Binding var selectedThreadID: String?
 
-    @State private var threads = DashboardThread.demo
-    @State private var threadMessages = DashboardThread.demoMessages
     @State private var replyDraft = ""
+    @State private var reportDraft: ReportDraft?
+
+    private var threads: [DashboardThread] {
+        let groupedMessages = Dictionary(grouping: store.messages.filter { $0.stylistID == stylistID }) { message in
+            message.customerID?.uuidString ?? "guest-\(message.senderName)"
+        }
+
+        var mapped = groupedMessages.map { key, messages in
+            DashboardThread(id: key, messages: messages, bookings: bookings(for: key), profiles: store.customerProfilesByID)
+        }
+
+        let messageThreadIDs = Set(mapped.map(\.id))
+        let bookingThreads = store.bookings
+            .filter { $0.stylistID == stylistID && $0.status != .cancelled && $0.status != .completed }
+            .compactMap { booking -> DashboardThread? in
+                guard let customerID = booking.customerID else { return nil }
+                let id = customerID.uuidString
+                guard !messageThreadIDs.contains(id) else { return nil }
+                return DashboardThread(id: id, booking: booking, profiles: store.customerProfilesByID)
+            }
+
+        mapped.append(contentsOf: bookingThreads)
+        return mapped.sorted { lhs, rhs in
+            lhs.sortKey > rhs.sortKey
+        }
+    }
 
     private var selectedThread: DashboardThread? {
         guard let selectedThreadID else { return nil }
         return threads.first { $0.id == selectedThreadID }
+    }
+
+    private func messages(for thread: DashboardThread) -> [DashboardChatLine] {
+        store.messages
+            .filter { $0.stylistID == stylistID && ($0.customerID?.uuidString ?? "guest-\($0.senderName)") == thread.id }
+            .sorted { $0.sortKey < $1.sortKey }
+            .map(DashboardChatLine.init)
     }
 
     var body: some View {
@@ -646,18 +791,19 @@ private struct StylistMessagesWorkspace: View {
             if let selectedThread {
                 DashboardChatDetailPage(
                     thread: selectedThread,
-                    messages: threadMessages[selectedThread.id] ?? [],
+                    messages: messages(for: selectedThread),
                     replyDraft: $replyDraft,
                     onBack: {
                         withAnimation(.snappy(duration: 0.22)) {
                             selectedThreadID = nil
                         }
                     },
-                    onSend: sendReply
+                    onSend: sendReply,
+                    onReport: reportMessage
                 )
             } else {
                 DashboardChatInboxPage(threads: threads) { thread in
-                    markSeen(thread.id)
+                    store.markStylistThreadRead(stylistID: stylistID, threadID: thread.id)
                     withAnimation(.snappy(duration: 0.22)) {
                         selectedThreadID = thread.id
                     }
@@ -665,12 +811,16 @@ private struct StylistMessagesWorkspace: View {
             }
         }
         .background(DashboardPalette.canvas)
-    }
-
-    private func markSeen(_ id: String) {
-        if let index = threads.firstIndex(where: { $0.id == id }) {
-            threads[index].isUnread = false
-            threads[index].seenText = "已讀"
+        .task(id: stylistID) {
+            while !Task.isCancelled {
+                await store.refreshCatalog()
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+            }
+        }
+        .sheet(item: $reportDraft) { draft in
+            ReportSheet(draft: draft) { reason, details in
+                store.submitReport(entityType: draft.entityType, entityID: draft.entityID, reason: reason, details: details)
+            }
         }
     }
 
@@ -678,20 +828,25 @@ private struct StylistMessagesWorkspace: View {
         let clean = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, let thread = selectedThread else { return }
         replyDraft = ""
-        let message = DashboardChatLine(
-            id: "reply_\(Int(Date().timeIntervalSince1970 * 1000))",
-            text: clean,
-            time: DateFormatter.hmTime.string(from: Date()),
-            isStylist: true,
-            isSeen: true
-        )
-        threadMessages[thread.id, default: []].append(message)
-        if let index = threads.firstIndex(where: { $0.id == thread.id }) {
-            threads[index].lastMessage = clean
-            threads[index].time = "剛剛"
-            threads[index].seenText = "已讀"
+        Task {
+            await store.sendMessage(text: clean, stylistID: stylistID, sender: .stylist, customerID: thread.customerID)
+            await store.refreshCatalog()
         }
-        Task { await store.sendMessage(text: clean, stylistID: stylistID, sender: .stylist) }
+    }
+
+    private func reportMessage(_ message: DashboardChatLine) {
+        reportDraft = ReportDraft(
+            entityType: .message,
+            entityID: message.id,
+            title: "檢舉顧客訊息",
+            subtitle: message.text
+        )
+    }
+
+    private func bookings(for threadID: String) -> [Appointment] {
+        store.bookings.filter { booking in
+            booking.stylistID == stylistID && booking.customerID?.uuidString == threadID
+        }
     }
 }
 
@@ -705,13 +860,21 @@ private struct DashboardChatInboxPage: View {
                 VStack(alignment: .leading, spacing: 16) {
                     DashboardSectionHeader(eyebrow: "💬 Chat Inbox", title: "客戶對話信箱")
 
-                    ForEach(threads) { thread in
-                        Button {
-                            openThread(thread)
-                        } label: {
-                            DashboardThreadCard(thread: thread)
+                    if threads.isEmpty {
+                        DashboardEmptyNotice(
+                            systemImage: "message",
+                            title: "暫時沒有顧客訊息",
+                            message: "顧客從髮型師檔案或預約進度傳訊後，會出現在這裡。"
+                        )
+                    } else {
+                        ForEach(threads) { thread in
+                            Button {
+                                openThread(thread)
+                            } label: {
+                                DashboardThreadCard(thread: thread)
+                            }
+                            .buttonStyle(PressableButtonStyle())
                         }
-                        .buttonStyle(PressableButtonStyle())
                     }
 
                     Spacer(minLength: 260)
@@ -731,14 +894,39 @@ private struct DashboardChatInboxPage: View {
     }
 }
 
+private struct DashboardCustomerAvatar: View {
+    let urlString: String
+    let size: CGFloat
+
+    private var hasImage: Bool {
+        !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        Group {
+            if hasImage {
+                RemoteImage(urlString: urlString, height: size, cornerRadius: size / 2)
+            } else {
+                Circle()
+                    .fill(Color.black.opacity(0.08))
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .font(.system(size: size * 0.42, weight: .bold))
+                            .foregroundStyle(.black.opacity(0.62))
+                    )
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+}
+
 private struct DashboardThreadCard: View {
     let thread: DashboardThread
 
     var body: some View {
         HStack(spacing: 14) {
-            RemoteImage(urlString: thread.avatarURL, height: 54, cornerRadius: 27)
-                .frame(width: 54, height: 54)
-                .clipShape(Circle())
+            DashboardCustomerAvatar(urlString: thread.avatarURL, size: 54)
                 .overlay(alignment: .bottomTrailing) {
                     Circle()
                         .fill(DashboardPalette.green)
@@ -800,6 +988,7 @@ private struct DashboardChatDetailPage: View {
     @Binding var replyDraft: String
     let onBack: () -> Void
     let onSend: () -> Void
+    let onReport: (DashboardChatLine) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -813,9 +1002,7 @@ private struct DashboardChatDetailPage: View {
 
                 Spacer()
 
-                RemoteImage(urlString: thread.avatarURL, height: 32, cornerRadius: 16)
-                    .frame(width: 32, height: 32)
-                    .clipShape(Circle())
+                DashboardCustomerAvatar(urlString: thread.avatarURL, size: 32)
 
                 Text(thread.name)
                     .font(.system(size: 15, weight: .black))
@@ -832,7 +1019,8 @@ private struct DashboardChatDetailPage: View {
                     ForEach(messages) { message in
                         DashboardChatBubble(
                             message: message,
-                            avatarURL: message.isStylist ? "https://images.unsplash.com/photo-1615109398623-88346a601842?auto=format&fit=crop&w=400&q=80" : thread.avatarURL
+                            avatarURL: message.isStylist ? "https://images.unsplash.com/photo-1615109398623-88346a601842?auto=format&fit=crop&w=400&q=80" : thread.avatarURL,
+                            onReport: { onReport(message) }
                         )
                     }
                     Spacer(minLength: 210)
@@ -869,26 +1057,23 @@ private struct DashboardChatDetailPage: View {
 private struct DashboardChatBubble: View {
     let message: DashboardChatLine
     let avatarURL: String
+    let onReport: () -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 9) {
             if !message.isStylist {
-                RemoteImage(urlString: avatarURL, height: 28, cornerRadius: 14)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
+                DashboardCustomerAvatar(urlString: avatarURL, size: 28)
             } else {
                 Spacer(minLength: 38)
             }
 
             VStack(alignment: message.isStylist ? .trailing : .leading, spacing: 5) {
-                Text(message.text)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineSpacing(3)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .foregroundStyle(message.isStylist ? .white : .black)
-                    .background(message.isStylist ? .black : .white, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(message.isStylist ? .clear : .black, lineWidth: 1))
+                messageBody
+                    .contextMenu {
+                        Button("檢舉訊息", role: .destructive) {
+                            onReport()
+                        }
+                    }
 
                 Text(message.isStylist && message.isSeen ? "\(message.time) · 已讀" : message.time)
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -901,10 +1086,29 @@ private struct DashboardChatBubble: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var messageBody: some View {
+        if let photoURL = message.photoURL {
+            RemoteImage(urlString: photoURL, height: 170, cornerRadius: 14)
+                .frame(width: 230)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(message.isStylist ? .clear : .black, lineWidth: 1))
+        } else {
+            Text(message.text)
+                .font(.system(size: 14, weight: .medium))
+                .lineSpacing(3)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .foregroundStyle(message.isStylist ? .white : .black)
+                .background(message.isStylist ? .black : .white, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(message.isStylist ? .clear : .black, lineWidth: 1))
+        }
+    }
 }
 
 private struct DashboardThread: Identifiable, Hashable {
     var id: String
+    var customerID: UUID?
     var name: String
     var tag: String
     var avatarURL: String
@@ -913,27 +1117,81 @@ private struct DashboardThread: Identifiable, Hashable {
     var isUnread: Bool
     var seenText: String
     var chips: [String]
+    var sortKey: TimeInterval
 
-    static let demo = [
-        DashboardThread(id: "thread-alex", name: "Alex Chen", tag: "", avatarURL: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80", lastMessage: "巴黎畫染適合我的髮質嗎？", time: "15:09", isUnread: true, seenText: "未讀 ☐", chips: ["挑染諮詢"]),
-        DashboardThread(id: "thread-chris", name: "Chris Wong", tag: "", avatarURL: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80", lastMessage: "謝謝老師，今天的新層推修飾十分清爽！", time: "昨日", isUnread: false, seenText: "已讀", chips: ["男士剪髮"]),
-        DashboardThread(id: "thread-mandy", name: "Mandy Lee", tag: "", avatarURL: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80", lastMessage: "好，到時候再見！", time: "2天前", isUnread: false, seenText: "已讀", chips: ["深層護理"])
-    ]
+    init(id: String, messages: [ChatMessageItem], bookings: [Appointment], profiles: [UUID: HairmapProfile]) {
+        let sortedMessages = messages.sorted { $0.sortKey < $1.sortKey }
+        let last = sortedMessages.last
+        let firstCustomerMessage = sortedMessages.first { $0.senderRole == .customer }
+        let customerBooking = bookings.sorted { $0.bookingDate + $0.startTime > $1.bookingDate + $1.startTime }.first
+        let fallbackCustomerID = messages.compactMap(\.customerID).first ?? customerBooking?.customerID
+        let profile = fallbackCustomerID.flatMap { profiles[$0] }
 
-    static let demoMessages: [String: [DashboardChatLine]] = [
-        "thread-alex": [
-            DashboardChatLine(id: "a1", text: "老師你好，我預約了下星期六下午的畫染。", time: "14:59", isStylist: false, isSeen: false),
-            DashboardChatLine(id: "a2", text: "您好！沒問題，看到您的預約了。可以分享一下您目前的髮色照片嗎？", time: "14:55", isStylist: true, isSeen: true),
-            DashboardChatLine(id: "a3", text: "好呀，目前的髮尾有點漂過，退成橘黃色，巴黎畫染適合我的髮質嗎？", time: "15:16", isStylist: false, isSeen: false)
-        ],
-        "thread-chris": [
-            DashboardChatLine(id: "c1", text: "謝謝老師，今天的新層推修飾十分清爽！", time: "昨日", isStylist: false, isSeen: false),
-            DashboardChatLine(id: "c2", text: "保持兩側乾淨線條，下次四至五週回來修一修就剛好。", time: "昨日", isStylist: true, isSeen: true)
-        ],
-        "thread-mandy": [
-            DashboardChatLine(id: "m1", text: "好，到時候再見！", time: "2天前", isStylist: false, isSeen: false)
+        self.id = id
+        self.customerID = fallbackCustomerID
+        name = Self.customerName(profile: profile, booking: customerBooking, message: firstCustomerMessage)
+        tag = customerBooking?.serviceName ?? ""
+        avatarURL = profile?.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        lastMessage = last?.displayText ?? "已建立預約，尚未開始對話"
+        time = last?.displayTime ?? customerBooking?.bookingDate ?? "剛剛"
+        isUnread = last?.senderRole == .customer
+        seenText = isUnread ? "未讀 ☐" : "已讀"
+        chips = Array(Set(bookings.map(\.serviceName))).prefix(2).map { $0 }
+        sortKey = last?.sortKey ?? Self.bookingSortKey(customerBooking)
+    }
+
+    init(id: String, booking: Appointment, profiles: [UUID: HairmapProfile]) {
+        let profile = booking.customerID.flatMap { profiles[$0] }
+        self.id = id
+        customerID = booking.customerID
+        name = Self.customerName(profile: profile, booking: booking, message: nil)
+        tag = booking.serviceName
+        avatarURL = profile?.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        lastMessage = "\(booking.bookingDate) \(booking.timeSlot) 的預約已建立"
+        time = booking.bookingDate
+        isUnread = false
+        seenText = "已讀"
+        chips = [booking.serviceName]
+        sortKey = Self.bookingSortKey(booking)
+    }
+
+    private static func bookingSortKey(_ booking: Appointment?) -> TimeInterval {
+        guard let booking else { return 0 }
+        let value = "\(booking.bookingDate) \(booking.startTime.hmTimeKey)"
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.date(from: value)?.timeIntervalSince1970 ?? 0
+    }
+
+    private static func customerName(profile: HairmapProfile?, booking: Appointment?, message: ChatMessageItem?) -> String {
+        let candidates = [
+            profile?.displayName,
+            booking?.clientName,
+            message?.senderName
         ]
-    ]
+        for candidate in candidates {
+            let clean = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if isUsefulCustomerName(clean, email: profile?.email) {
+                return clean
+            }
+        }
+        return "Hairmap 顧客"
+    }
+
+    private static func isUsefulCustomerName(_ name: String, email: String?) -> Bool {
+        guard !name.isEmpty else { return false }
+        let lower = name.lowercased()
+        let emailLower = email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let genericNames: Set<String> = [
+            "hairmap guest",
+            "hairmap 顧客",
+            "hairmap 會員",
+            "google guest",
+            "apple guest"
+        ]
+        return !name.contains("@") && lower != emailLower && !genericNames.contains(lower)
+    }
 }
 
 private struct DashboardChatLine: Identifiable, Hashable {
@@ -942,21 +1200,42 @@ private struct DashboardChatLine: Identifiable, Hashable {
     var time: String
     var isStylist: Bool
     var isSeen: Bool
+    var photoURL: String?
+
+    init(id: String, text: String, time: String, isStylist: Bool, isSeen: Bool, photoURL: String? = nil) {
+        self.id = id
+        self.text = text
+        self.time = time
+        self.isStylist = isStylist
+        self.isSeen = isSeen
+        self.photoURL = photoURL
+    }
+
+    init(message: ChatMessageItem) {
+        id = message.id
+        text = message.displayText
+        time = message.displayTime
+        isStylist = message.senderRole == .stylist
+        isSeen = true
+        photoURL = message.photoURL
+    }
 }
 
 private struct StylistScheduleWorkspace: View {
     @Environment(HairmapStore.self) private var store
     let stylistID: String
 
-    @State private var selectedDate = DashboardCalendar.date(from: "2026-06-06") ?? Date()
+    @State private var selectedDate = DashboardCalendar.today()
     @State private var isCalendarOpen = false
-    @State private var blockedTimes: Set<String> = ["12:00", "13:00"]
-    @State private var batchStartDate = DashboardCalendar.date(from: "2026-06-06") ?? Date()
-    @State private var batchEndDate = DashboardCalendar.date(from: "2026-06-08") ?? Date()
-    @State private var batchStartTime = "13:00"
-    @State private var batchEndTime = "17:00"
+    @State private var optimisticBlockedSlots: Set<String> = []
+    @State private var batchStartDate = DashboardCalendar.today()
+    @State private var batchEndDate = DashboardCalendar.today()
+    @State private var batchStartTime = "13:30"
+    @State private var batchEndTime = "17:30"
+    @State private var isSyncing = false
+    @State private var syncNotice = "檔期會自動同步到 Supabase"
 
-    private let times = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"]
+    private let times = ["09:00", "10:00", "11:00", "13:30", "14:30", "15:30", "17:30", "18:30", "19:30", "20:00", "20:30"]
     private let columns = [
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8),
@@ -966,7 +1245,7 @@ private struct StylistScheduleWorkspace: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                DashboardSectionHeader(eyebrow: "🔒 Block Schedule", title: "檔期管理 (塞迷忙碌)")
+                DashboardSectionHeader(eyebrow: "🔒 Block Schedule", title: "檔期管理")
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("1. 選擇要關閉設定日期")
@@ -982,11 +1261,11 @@ private struct StylistScheduleWorkspace: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(.black, lineWidth: 1))
 
                 HStack {
-                    Text("時段切換 (點擊切換「可約」/「忙碌」)")
+                    Text("時段切換")
                         .font(.system(size: 13, weight: .black))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Label("系統與 Supabase 自主連機", systemImage: "circle.fill")
+                    Label(isSyncing ? "同步中..." : "已連接 Supabase", systemImage: "circle.fill")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(DashboardPalette.green)
                 }
@@ -1013,6 +1292,11 @@ private struct StylistScheduleWorkspace: View {
                     }
                 }
 
+                DashboardScheduleSyncStatus(
+                    isSyncing: isSyncing,
+                    notice: syncNotice
+                )
+
                 DashboardBatchBlockCard(
                     startDate: $batchStartDate,
                     endDate: $batchEndDate,
@@ -1027,6 +1311,9 @@ private struct StylistScheduleWorkspace: View {
             .padding(.bottom, 28)
         }
         .background(DashboardPalette.canvas)
+        .task {
+            await store.refreshCatalog()
+        }
     }
 
     private var selectedDateKey: String {
@@ -1034,16 +1321,38 @@ private struct StylistScheduleWorkspace: View {
     }
 
     private func isBlocked(_ time: String) -> Bool {
-        blockedTimes.contains(time) || store.isBlocked(stylistID: stylistID, date: selectedDateKey, time: time)
+        optimisticBlockedSlots.contains(slotKey(dateKey: selectedDateKey, time: time)) ||
+            store.isBlocked(stylistID: stylistID, date: selectedDateKey, time: time)
     }
 
     private func toggle(_ time: String) {
-        if blockedTimes.contains(time) {
-            blockedTimes.remove(time)
+        let dateKey = selectedDateKey
+        let key = slotKey(dateKey: dateKey, time: time)
+        let shouldBlock = !isBlocked(time)
+        if shouldBlock {
+            optimisticBlockedSlots.insert(key)
         } else {
-            blockedTimes.insert(time)
+            optimisticBlockedSlots.remove(key)
         }
-        Task { await store.toggleBlockedSlot(stylistID: stylistID, date: selectedDateKey, time: time) }
+
+        isSyncing = true
+        syncNotice = "正在同步 \(DashboardCalendar.display(selectedDate)) \(time)..."
+        Task {
+            let didSync = await store.setBlockedSlot(stylistID: stylistID, date: dateKey, time: time, shouldBlock: shouldBlock)
+            if didSync {
+                optimisticBlockedSlots.remove(key)
+                await store.refreshCatalog()
+                syncNotice = shouldBlock ? "\(dateKey) \(time) 已標記忙碌" : "\(dateKey) \(time) 已重新開放"
+            } else {
+                if shouldBlock {
+                    optimisticBlockedSlots.remove(key)
+                } else {
+                    optimisticBlockedSlots.insert(key)
+                }
+                syncNotice = "同步失敗，請重新登入後再試"
+            }
+            isSyncing = false
+        }
     }
 
     private func batchBlock() {
@@ -1052,14 +1361,28 @@ private struct StylistScheduleWorkspace: View {
         let selectedTimes = Array(times[min(startIndex, endIndex)...max(startIndex, endIndex)])
         let dateKeys = DashboardCalendar.keys(from: batchStartDate, to: batchEndDate)
 
-        for dateKey in dateKeys {
-            for time in selectedTimes where !store.isBlocked(stylistID: stylistID, date: dateKey, time: time) {
-                if dateKey == selectedDateKey {
-                    blockedTimes.insert(time)
+        isSyncing = true
+        syncNotice = "正在批量同步 \(dateKeys.count) 日檔期..."
+        Task {
+            var syncedCount = 0
+            for dateKey in dateKeys {
+                for time in selectedTimes where !store.isBlocked(stylistID: stylistID, date: dateKey, time: time) {
+                    optimisticBlockedSlots.insert(slotKey(dateKey: dateKey, time: time))
+                    let didSync = await store.setBlockedSlot(stylistID: stylistID, date: dateKey, time: time, shouldBlock: true)
+                    if didSync {
+                        syncedCount += 1
+                        optimisticBlockedSlots.remove(slotKey(dateKey: dateKey, time: time))
+                    }
                 }
-                Task { await store.toggleBlockedSlot(stylistID: stylistID, date: dateKey, time: time) }
             }
+            await store.refreshCatalog()
+            syncNotice = "已同步 \(syncedCount) 個忙碌時段到 Supabase"
+            isSyncing = false
         }
+    }
+
+    private func slotKey(dateKey: String, time: String) -> String {
+        "\(dateKey)|\(time)"
     }
 }
 
@@ -1107,6 +1430,32 @@ private struct DashboardDatePickerField: View {
         .onAppear {
             visibleMonth = DashboardCalendar.monthStart(for: selectedDate)
         }
+    }
+}
+
+private struct DashboardScheduleSyncStatus: View {
+    let isSyncing: Bool
+    let notice: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isSyncing ? "arrow.triangle.2.circlepath" : "checkmark.seal.fill")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(isSyncing ? DashboardPalette.gold : DashboardPalette.green)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isSyncing ? "正在儲存檔期" : "檔期已連接資料庫")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(.black)
+                Text(notice)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSyncing ? DashboardPalette.gold.opacity(0.6) : DashboardPalette.green.opacity(0.45), lineWidth: 1))
     }
 }
 
@@ -1226,6 +1575,10 @@ private enum DashboardCalendar {
         keyFormatter.date(from: key)
     }
 
+    static func today() -> Date {
+        calendar.startOfDay(for: Date())
+    }
+
     static func key(from date: Date) -> String {
         keyFormatter.string(from: date)
     }
@@ -1331,7 +1684,7 @@ private struct DashboardBatchBlockCard: View {
                 .fill(.black.opacity(0.85))
                 .frame(height: 1)
 
-            Text("挑選日期範圍與每天的特定小時時段，一鍵快速於 Supabase 寫入 blocked_slots 表以阻擋顧客惡意預約。")
+            Text("挑選日期範圍與每天的可預約時段，一鍵快速同步為忙碌，顧客預約頁會即時避開這些時段。")
                 .font(.system(size: 12, weight: .medium))
                 .lineSpacing(3)
                 .foregroundStyle(.secondary)
@@ -1399,9 +1752,12 @@ private struct DashboardBatchDateSelector: View {
 }
 
 private struct StylistProfileWorkspace: View {
+    @Environment(HairmapStore.self) private var store
     let stylistID: String
+    let hasApprovedProfile: Bool
     @Binding var name: String
     @Binding var title: String
+    @Binding var phone: String
     @Binding var bio: String
     @Binding var experience: String
     @Binding var languages: String
@@ -1417,10 +1773,12 @@ private struct StylistProfileWorkspace: View {
     @Binding var customWorkURL: String
     @Binding var instagramURL: String
     @Binding var pickedAvatarItem: PhotosPickerItem?
-    @Binding var pickedWorkItem: PhotosPickerItem?
+    @Binding var pickedWorkItems: [PhotosPickerItem]
     let uploadedAvatarData: Data?
-    let uploadedWorkData: Data?
-    let onSave: () -> Void
+    let applicationNotice: String
+    let onSubmitForReview: () -> Void
+    @State private var isDeleteAlertPresented = false
+    @State private var isDeletingAccount = false
 
     private let tags = ["挑染專家", "經典剪髮", "歐美挑染", "漸層推剪", "韓式燙髮", "縮毛矯正", "女神大波浪", "深層護理", "直髮柔順"]
     private let avatarPresets = [
@@ -1428,16 +1786,27 @@ private struct StylistProfileWorkspace: View {
         DashboardImageChoice(title: "經驗紳士男設計師", url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80"),
         DashboardImageChoice(title: "韓系甜美女設計師", url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80")
     ]
-    private let portfolioPresets = SeedData.works
-
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                DashboardSectionHeader(eyebrow: "🟡 My Stylist Profile", title: "我的檔案名片管理")
+                DashboardSectionHeader(
+                    eyebrow: "🟡 My Stylist Profile",
+                    title: hasApprovedProfile ? "個人檔案更新" : "建立髮型師檔案",
+                    trailing: hasApprovedProfile ? "需審批" : "待建立"
+                )
 
                 DashboardFormCard {
+                    Text(hasApprovedProfile ? "如需更改公開名片資料，請在此更新並提交審批；管理員批准後才會同步到顧客端 app 頁面。" : "首次登入後請先建立髮型師檔案。提交後會進入管理員審批，批准前不會公開到顧客端。")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(3)
+                        .padding(12)
+                        .background(Color(red: 1.0, green: 0.985, blue: 0.9), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(DashboardPalette.gold.opacity(0.35), lineWidth: 1))
+
                     DashboardInputField(label: "設計師姓名 *", placeholder: "Master Leo", text: $name)
                     DashboardInputField(label: "頭銜職稱 *", placeholder: "首席設計師", text: $title)
+                    DashboardInputField(label: "髮型師聯絡電話 *", placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
                     DashboardTextArea(label: "個人簡介", placeholder: "10年以上明星美髮經驗。擅長巴黎 Balayage 手刷漸層挑染...", text: $bio, height: 110)
 
                     HStack(spacing: 10) {
@@ -1463,18 +1832,17 @@ private struct StylistProfileWorkspace: View {
                     )
 
                     DashboardPortfolioEditor(
+                        stylistID: stylistID,
                         works: $works,
                         customWorkTitle: $customWorkTitle,
                         customWorkURL: $customWorkURL,
-                        pickedWorkItem: $pickedWorkItem,
-                        uploadedWorkData: uploadedWorkData,
-                        presets: Array(portfolioPresets.prefix(8))
+                        pickedWorkItems: $pickedWorkItems
                     )
 
                     DashboardInputField(label: "設計師線上 IG 專案作品連結", placeholder: "https://...", text: $instagramURL)
 
-                    Button(action: onSave) {
-                        Text("儲存名片並更新 Supabase 表")
+                    Button(action: onSubmitForReview) {
+                        Text(hasApprovedProfile ? "提交個人檔案更新審批" : "提交髮型師檔案審批")
                             .font(.system(size: 15, weight: .black))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -1482,6 +1850,38 @@ private struct StylistProfileWorkspace: View {
                             .background(.black, in: RoundedRectangle(cornerRadius: 9))
                     }
                     .buttonStyle(PressableButtonStyle())
+
+                    DashboardApplicationReviewCard(notice: applicationNotice)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("帳號管理")
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(.black)
+                        Text("如不再使用 Hairmap，可永久刪除髮型師登入帳號。此動作會登出並移除您的登入資料。")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button(role: .destructive) {
+                            isDeleteAlertPresented = true
+                        } label: {
+                            HStack {
+                                if isDeletingAccount {
+                                    ProgressView()
+                                        .tint(.red)
+                                }
+                                Label(isDeletingAccount ? "正在刪除帳號..." : "永久刪除帳號", systemImage: "trash")
+                            }
+                            .font(.system(size: 14, weight: .black))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.red.opacity(0.24), lineWidth: 1))
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .disabled(isDeletingAccount)
+                    }
                 }
             }
             .padding(.horizontal, 18)
@@ -1489,6 +1889,62 @@ private struct StylistProfileWorkspace: View {
             .padding(.bottom, 28)
         }
         .background(DashboardPalette.canvas)
+        .alert("永久刪除 Hairmap 帳號？", isPresented: $isDeleteAlertPresented) {
+            Button("取消", role: .cancel) {}
+            Button("刪除帳號", role: .destructive) {
+                deleteAccount()
+            }
+        } message: {
+            Text("這會刪除您的登入帳號並登出此裝置。刪除後如要再次使用 Hairmap，需要重新註冊。")
+        }
+    }
+
+    private func deleteAccount() {
+        Task {
+            isDeletingAccount = true
+            _ = await store.deleteAccount()
+            isDeletingAccount = false
+        }
+    }
+}
+
+private struct DashboardApplicationReviewCard: View {
+    let notice: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("提交平台審批", systemImage: "checkmark.seal")
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(Color(red: 0.67, green: 0.47, blue: 0.05))
+            Text("新增或更新公開檔案時會先儲存在 Supabase 申請表，等管理員批准後才會出現在顧客端。")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+
+            if !notice.isEmpty {
+                Label(notice, systemImage: "clock.badge.checkmark")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(DashboardPalette.green)
+                    .lineLimit(2)
+            }
+        }
+        .padding(14)
+        .background(Color(red: 1.0, green: 0.985, blue: 0.9), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DashboardPalette.gold.opacity(0.45), lineWidth: 1))
+    }
+}
+
+private extension Text {
+    func reviewSubmitButtonStyle(filled: Bool) -> some View {
+        self
+            .font(.system(size: 12, weight: .black))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .foregroundStyle(filled ? .white : .black)
+            .frame(maxWidth: .infinity)
+            .frame(height: 42)
+            .background(filled ? Color.black : Color.white, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(.black, lineWidth: 1))
     }
 }
 
@@ -1875,18 +2331,13 @@ private struct DashboardAvatarEditor: View {
 }
 
 private struct DashboardPortfolioEditor: View {
+    let stylistID: String
     @Binding var works: [PortfolioWork]
     @Binding var customWorkTitle: String
     @Binding var customWorkURL: String
-    @Binding var pickedWorkItem: PhotosPickerItem?
-    let uploadedWorkData: Data?
-    let presets: [PortfolioWork]
+    @Binding var pickedWorkItems: [PhotosPickerItem]
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
-    ]
+    private var remainingSlots: Int { max(0, 10 - works.count) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -1904,7 +2355,7 @@ private struct DashboardPortfolioEditor: View {
 
             if !works.isEmpty {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                    ForEach(works.prefix(4)) { work in
+                    ForEach(works.prefix(10)) { work in
                         ZStack(alignment: .topTrailing) {
                             DashboardUploadedImage(data: nil, urlString: work.imageURL, height: 74, cornerRadius: 8)
                             Button {
@@ -1922,38 +2373,8 @@ private struct DashboardPortfolioEditor: View {
                 }
             }
 
-            Text("熱門風格快速加入項目")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.secondary)
-
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(presets) { work in
-                    Button {
-                        addPreset(work)
-                    } label: {
-                        ZStack(alignment: .bottom) {
-                            RemoteImage(urlString: work.imageURL, height: 82, cornerRadius: 8)
-                            Text(work.title)
-                                .font(.system(size: 9, weight: .black))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.6)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 5)
-                                .foregroundStyle(.white)
-                                .background(.black.opacity(0.5))
-                            Image(systemName: "plus")
-                                .font(.system(size: 15, weight: .black))
-                                .foregroundStyle(.white)
-                                .frame(width: 28, height: 28)
-                                .background(.black.opacity(0.4), in: Circle())
-                        }
-                    }
-                    .buttonStyle(PressableButtonStyle())
-                }
-            }
-
-            PhotosPicker(selection: $pickedWorkItem, matching: .images) {
-                Label("自手機相簿選擇作品", systemImage: "square.and.arrow.up")
+            PhotosPicker(selection: $pickedWorkItems, maxSelectionCount: max(1, remainingSlots), matching: .images) {
+                Label(remainingSlots == 0 ? "已達作品上限" : "自手機相簿選擇多張作品", systemImage: "square.and.arrow.up")
                     .font(.system(size: 13, weight: .black))
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
@@ -1962,10 +2383,12 @@ private struct DashboardPortfolioEditor: View {
                     .foregroundStyle(.black)
             }
             .buttonStyle(PressableButtonStyle())
+            .disabled(remainingSlots == 0)
+            .opacity(remainingSlots == 0 ? 0.45 : 1)
 
-            if let uploadedWorkData {
-                DashboardUploadedImage(data: uploadedWorkData, urlString: "", height: 86, cornerRadius: 8)
-            }
+            Text("可一次選擇多張相片；提交時只會使用您上載或手動加入的作品，不會自動加入示範作品。")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
                 TextField("作品標題", text: $customWorkTitle)
@@ -1985,25 +2408,23 @@ private struct DashboardPortfolioEditor: View {
                     .foregroundStyle(.white)
             }
             .buttonStyle(PressableButtonStyle())
+            .disabled(remainingSlots == 0)
+            .opacity(remainingSlots == 0 ? 0.45 : 1)
         }
         .padding(14)
         .background(.white, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.black.opacity(0.08), lineWidth: 1))
     }
 
-    private func addPreset(_ work: PortfolioWork) {
-        guard !works.contains(where: { $0.id == work.id }) else { return }
-        works.append(work)
-    }
-
     private func addURLWork() {
+        guard remainingSlots > 0 else { return }
         let url = customWorkURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         let title = customWorkTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         works.append(
             PortfolioWork(
                 id: "dash_url_work_\(Int(Date().timeIntervalSince1970 * 1000))",
-                stylistID: "master-leo",
+                stylistID: stylistID,
                 title: title.isEmpty ? "自訂作品" : title,
                 imageURL: url
             )
@@ -2028,6 +2449,14 @@ private struct DashboardServiceDraft: Identifiable, Hashable {
             DashboardServiceDraft(id: "\(stylistID)_optional_straight", name: "日本膠原蛋白極上縮毛離子矯正 (直髮)", category: "直髮", duration: 180, description: "拯救嚴重自然捲與毛躁粗硬，重現瀑布柔順", price: 1380, isSelected: false),
             DashboardServiceDraft(id: "\(stylistID)_optional_color", name: "明星巴黎手刷多層次手感挑色漂染 (染髮)", category: "染髮", duration: 180, description: "高質感 3D 立體手畫染，打造歐美時間漸層", price: 1680, isSelected: false)
         ]
+    }
+
+    static func starterDefaults(stylistID: String) -> [DashboardServiceDraft] {
+        [
+            DashboardServiceDraft(id: "\(stylistID)_starter_cut", name: "招牌精修剪髮", category: "剪髮", duration: 60, description: "包含洗髮、頭型修飾與基礎造型", price: 380, isSelected: true),
+            DashboardServiceDraft(id: "\(stylistID)_starter_color", name: "質感染髮與光澤護理", category: "染髮", duration: 120, description: "依髮質調配色調，附基礎護理", price: 880, isSelected: true),
+            DashboardServiceDraft(id: "\(stylistID)_starter_treatment", name: "深層護髮修復", category: "護髮", duration: 90, description: "改善毛躁與受損髮尾", price: 680, isSelected: true)
+        ] + optionalDefaults(stylistID: stylistID)
     }
 }
 

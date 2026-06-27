@@ -52,6 +52,18 @@ struct SupabaseSettings {
     }
 }
 
+struct StylistApplicationClaimResult: Decodable, Hashable {
+    var claimStatus: String
+    var applicationID: String?
+    var stylistID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case claimStatus = "claim_status"
+        case applicationID = "application_id"
+        case stylistID = "stylist_id"
+    }
+}
+
 @MainActor
 final class SupabaseGateway {
     private static let mediaBucket = "hairmap-media"
@@ -1041,7 +1053,8 @@ final class SupabaseGateway {
         let application = StylistApplication(
             id: "stylist-application-\(stylist.id)-\(UUID().uuidString.lowercased())",
             submittedBy: session.user.id,
-            stylist: stylist
+            stylist: stylist,
+            contactEmail: session.user.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         )
         try await client.from("stylist_applications")
             .insert(application)
@@ -1066,7 +1079,9 @@ final class SupabaseGateway {
         let stylist = application.asStylist()
         try await saveStylist(stylist)
         try await setStylistApplicationStatus(id: application.id, status: .approved)
-        try await linkApprovedStylistProfile(application)
+        if application.ownerID != nil {
+            try await linkApprovedStylistProfile(application)
+        }
     }
 
     func rejectStylistApplication(_ application: StylistApplication) async throws {
@@ -1142,7 +1157,7 @@ final class SupabaseGateway {
     }
 
     private func linkApprovedStylistProfile(_ application: StylistApplication) async throws {
-        guard let client else { return }
+        guard let client, let ownerID = application.ownerID else { return }
         struct Payload: Encodable {
             let displayName: String
             let stylistID: String
@@ -1163,8 +1178,17 @@ final class SupabaseGateway {
                     avatarURL: application.avatarURL
                 )
             )
-            .eq("id", value: application.ownerID.uuidString)
+            .eq("id", value: ownerID.uuidString)
             .execute()
+    }
+
+    func claimApprovedStylistApplication() async throws -> StylistApplicationClaimResult? {
+        guard let client else { return nil }
+        let rows: [StylistApplicationClaimResult] = try await client
+            .rpc("claim_approved_stylist_application")
+            .execute()
+            .value
+        return rows.first
     }
 
     func updateStylistAdminState(id: String, isActive: Bool, isFeatured: Bool, displayOrder: Int) async throws {

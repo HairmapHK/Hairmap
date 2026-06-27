@@ -37,7 +37,7 @@ const userDeleteTargets: DeleteTarget[] = [
   { table: "ranking_overrides", columns: ["created_by", "updated_by"] },
   { table: "audit_logs", columns: ["actor_id"] },
   { table: "app_settings", columns: ["updated_by"] },
-  { table: "stylist_applications", columns: ["submitted_by", "owner_id", "reviewed_by"] },
+  { table: "stylist_applications", columns: ["submitted_by", "owner_id", "claimed_by", "reviewed_by"] },
   { table: "salon_applications", columns: ["submitted_by", "reviewed_by"] },
   { table: "blocked_slots", columns: ["created_by", "owner_id", "stylist_owner_id"] },
   { table: "portfolio_works", columns: ["created_by", "owner_id"] },

@@ -93,6 +93,9 @@ export type StylistApplication = {
   submitted_by: string | null;
   stylist_id: string;
   owner_id: string | null;
+  contact_email: string;
+  claimed_by: string | null;
+  claimed_at: string | null;
   salon_id: string;
   name: string;
   title: string;

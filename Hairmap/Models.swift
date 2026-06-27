@@ -351,9 +351,12 @@ enum CatalogApplicationStatus: String, Codable, Hashable, CaseIterable, Identifi
 
 struct StylistApplication: Identifiable, Codable, Hashable {
     var id: String
-    var submittedBy: UUID
+    var submittedBy: UUID?
     var stylistID: String
-    var ownerID: UUID
+    var ownerID: UUID?
+    var contactEmail: String
+    var claimedBy: UUID?
+    var claimedAt: String?
     var salonID: String
     var name: String
     var title: String
@@ -376,6 +379,9 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         case submittedBy = "submitted_by"
         case stylistID = "stylist_id"
         case ownerID = "owner_id"
+        case contactEmail = "contact_email"
+        case claimedBy = "claimed_by"
+        case claimedAt = "claimed_at"
         case salonID = "salon_id"
         case name
         case title
@@ -394,11 +400,14 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         case adminNote = "admin_note"
     }
 
-    init(id: String, submittedBy: UUID, stylist: Stylist) {
+    init(id: String, submittedBy: UUID, stylist: Stylist, contactEmail: String = "") {
         self.id = id
         self.submittedBy = submittedBy
         stylistID = stylist.id
         ownerID = submittedBy
+        self.contactEmail = contactEmail
+        claimedBy = nil
+        claimedAt = nil
         salonID = stylist.salonID
         name = stylist.name
         title = stylist.title
@@ -445,7 +454,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
 
 struct SalonApplication: Identifiable, Codable, Hashable {
     var id: String
-    var submittedBy: UUID
+    var submittedBy: UUID?
     var salonID: String
     var name: String
     var location: String

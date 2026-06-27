@@ -130,6 +130,7 @@ function App() {
     const workURLs = await uploadFiles('stylist-works', applicationID, stylistWorks);
     const normalizedServices = buildServicePayload(stylistID, services);
     const worksPayload = buildWorksPayload(stylistID, workURLs, stylistWorks);
+    const normalizedApplicantEmail = applicantEmail.trim().toLowerCase();
 
     setSubmitState({ status: 'submitting', message: '正在建立髮型師 pending 申請...' });
     const { error } = await supabase.from('stylist_applications').insert({
@@ -137,6 +138,7 @@ function App() {
       submitted_by: null,
       stylist_id: stylistID,
       owner_id: null,
+      contact_email: normalizedApplicantEmail,
       salon_id: 'independent-stylist-studio',
       name: stylistName.trim(),
       title: stylistTitle.trim(),
@@ -155,7 +157,7 @@ function App() {
       admin_note: [
         '公開申請網站提交：髮型師',
         `聯絡人：${applicantName}`,
-        `Email：${applicantEmail}`,
+        `Email：${normalizedApplicantEmail}`,
         `申請人電話：${applicantPhone}`,
         `髮型師電話：${stylistPhone}`,
         `地區：${stylistDistrict}`,

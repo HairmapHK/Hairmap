@@ -577,9 +577,14 @@ function Applications({
                 key={item.id}
                 image={item.avatar_url}
                 title={item.name}
-                subtitle={`${item.title} · ${item.phone || '未填電話'}`}
+                subtitle={`${item.title} · ${item.contact_email || item.phone || '未填聯絡'}`}
                 status={item.status}
-                chips={[item.experience, item.languages, ...item.specialties.slice(0, 3)]}
+                chips={[
+                  item.claimed_by ? '已連接 App 帳號' : item.status === 'approved' ? '待同 email 註冊自動連接' : '待批准後可自動連接',
+                  item.experience,
+                  item.languages,
+                  ...item.specialties.slice(0, 3),
+                ]}
                 onView={() => setDetail({ kind: 'stylistApplication', item })}
                 actions={
                   <>

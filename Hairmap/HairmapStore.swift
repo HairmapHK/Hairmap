@@ -76,6 +76,7 @@ final class HairmapStore {
     var supabaseEnvironmentName: String { gateway.environmentName }
     private var expectsPasswordReset = false
     private var isLocalExperience = false
+    private var autoClaimStatusMessage: String?
 
     init() {
         self.gateway = SupabaseGateway()
@@ -94,8 +95,7 @@ final class HairmapStore {
 
         if let session = try? await gateway.currentSession() {
             applySession(session)
-            await refreshCurrentProfile()
-            await refreshAdminStatus()
+            await refreshAuthenticatedProfileContext()
         } else {
             currentProfile = nil
             isLocalExperience = false
@@ -160,7 +160,12 @@ final class HairmapStore {
                 updatedMessages: messages
             )
             hasCompletedInitialCatalogSync = true
-            statusMessage = gateway.isConfigured ? "Supabase 同步完成（\(gateway.environmentName)）" : "本地種子資料模式"
+            if let autoClaimStatusMessage {
+                statusMessage = autoClaimStatusMessage
+                self.autoClaimStatusMessage = nil
+            } else {
+                statusMessage = gateway.isConfigured ? "Supabase 同步完成（\(gateway.environmentName)）" : "本地種子資料模式"
+            }
         } catch {
             statusMessage = "Supabase 讀取失敗，已保留本地資料"
         }
@@ -334,8 +339,7 @@ final class HairmapStore {
             if let session = try await gateway.currentSession() {
                 applySession(session)
                 pendingConfirmationEmail = ""
-                await refreshCurrentProfile()
-                await refreshAdminStatus()
+                await refreshAuthenticatedProfileContext()
                 await refreshCatalog(showLoading: false)
             } else {
                 currentProfile = nil
@@ -407,8 +411,7 @@ final class HairmapStore {
                 applySession(resolvedSession)
                 pendingConfirmationEmail = ""
             }
-            await refreshCurrentProfile()
-            await refreshAdminStatus()
+            await refreshAuthenticatedProfileContext()
             await refreshCatalog(showLoading: false)
         } catch {
             statusMessage = authErrorMessage(for: error)
@@ -440,8 +443,7 @@ final class HairmapStore {
                 pendingSocialRole = nil
                 applySession(resolvedSession)
             }
-            await refreshCurrentProfile()
-            await refreshAdminStatus()
+            await refreshAuthenticatedProfileContext()
             await refreshCatalog(showLoading: false)
         } catch {
             pendingSocialRole = nil
@@ -470,8 +472,7 @@ final class HairmapStore {
                 let resolvedSession = try await enforceAuthenticatedRole(role, session: current, provider: .apple)
                 applySession(resolvedSession)
             }
-            await refreshCurrentProfile()
-            await refreshAdminStatus()
+            await refreshAuthenticatedProfileContext()
             await refreshCatalog(showLoading: false)
         } catch {
             statusMessage = authErrorMessage(for: error, provider: .apple)
@@ -521,6 +522,7 @@ final class HairmapStore {
             statusMessage = "密碼已更新成功，可以用新密碼登入"
             if let session = try await gateway.currentSession() {
                 applySession(session)
+                await refreshAuthenticatedProfileContext()
                 await refreshCatalog()
             }
         } catch {
@@ -1727,6 +1729,7 @@ final class HairmapStore {
                         self.isPasswordResetSheetPresented = true
                         self.statusMessage = "請設定新的登入密碼"
                     } else {
+                        await self.refreshAuthenticatedProfileContext()
                         await self.refreshCatalog()
                     }
                 } else {
@@ -1809,6 +1812,7 @@ final class HairmapStore {
         }
         let resolvedSession = await completePendingSocialRoleIfNeeded(session)
         applySession(resolvedSession)
+        await refreshAuthenticatedProfileContext()
         await refreshCatalog()
     }
 
@@ -1879,6 +1883,43 @@ final class HairmapStore {
         guard let profile = try? await gateway.currentProfile() else { return }
         currentProfile = profile
         syncCurrentStylistProfileFromCatalog()
+    }
+
+    private func refreshAuthenticatedProfileContext() async {
+        await refreshCurrentProfile()
+        await refreshAdminStatus()
+        await autoClaimApprovedStylistApplicationIfNeeded()
+    }
+
+    private func autoClaimApprovedStylistApplicationIfNeeded() async {
+        guard gateway.isConfigured else { return }
+        guard let profile = currentProfile, profile.role == .stylist else { return }
+        guard profile.stylistID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == nil else { return }
+
+        do {
+            guard let result = try await gateway.claimApprovedStylistApplication() else { return }
+            switch result.claimStatus {
+            case "claimed":
+                await refreshCatalog(showLoading: false)
+                await refreshCurrentProfile()
+                if let profile = currentProfile {
+                    _ = try? await gateway.updateAuthMetadata(
+                        displayName: profile.displayName,
+                        role: profile.role,
+                        stylistID: profile.stylistID
+                    )
+                }
+                autoClaimStatusMessage = "已自動連接已批准的髮型師後台"
+            case "ambiguous":
+                autoClaimStatusMessage = "找到多個同 Email 的已批准申請，請聯絡 Hairmap 團隊配對"
+            case "already_owned":
+                autoClaimStatusMessage = "此髮型師檔案已連接其他帳號，請聯絡 Hairmap 團隊"
+            default:
+                break
+            }
+        } catch {
+            return
+        }
     }
 
     private var draftStylistID: String {

@@ -24,6 +24,7 @@ const ignorableErrorCodes = new Set([
 
 const userDeleteTargets: DeleteTarget[] = [
   { table: "conversation_blocks", columns: ["customer_id", "blocked_by"] },
+  { table: "message_read_receipts", columns: ["profile_id"] },
   { table: "messages", columns: ["customer_id"] },
   { table: "bookings", columns: ["customer_id"] },
   { table: "inspiration_comment_reactions", columns: ["user_id"] },

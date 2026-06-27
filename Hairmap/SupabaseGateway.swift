@@ -174,6 +174,18 @@ final class SupabaseGateway {
         }
     }
 
+    private struct MessageReadReceiptRow: Codable {
+        var messageID: String
+        var profileID: UUID
+        var readAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case messageID = "message_id"
+            case profileID = "profile_id"
+            case readAt = "read_at"
+        }
+    }
+
     private struct UserBlockRow: Decodable {
         var blockedID: UUID
 
@@ -595,6 +607,7 @@ final class SupabaseGateway {
         let likedComments: [CommentReactionRow]
         let blockedConversations: [ConversationBlockRow]
         let blockedUsers: [UserBlockRow]
+        let readReceipts: [MessageReadReceiptRow]
         if let session {
             likedLooks = (try? await client.from("inspiration_reactions")
                 .select("inspiration_id")
@@ -618,11 +631,17 @@ final class SupabaseGateway {
                 .eq("blocker_id", value: session.user.id.uuidString)
                 .execute()
                 .value) ?? []
+            readReceipts = (try? await client.from("message_read_receipts")
+                .select("message_id,profile_id,read_at")
+                .eq("profile_id", value: session.user.id.uuidString)
+                .execute()
+                .value) ?? []
         } else {
             likedLooks = []
             likedComments = []
             blockedConversations = []
             blockedUsers = []
+            readReceipts = []
         }
 
         let bookings: [Appointment] = (try? await client.from("bookings")
@@ -673,7 +692,8 @@ final class SupabaseGateway {
             likedLookIDs: Set(likedLooks.map(\.inspirationID)),
             likedCommentIDs: Set(likedComments.map(\.commentID)),
             blockedChatStylistIDs: Set(blockedConversations.map(\.stylistID)),
-            blockedUserIDs: Set(blockedUsers.map(\.blockedID))
+            blockedUserIDs: Set(blockedUsers.map(\.blockedID)),
+            readMessageIDs: Set(readReceipts.map(\.messageID))
         )
     }
 
@@ -1283,6 +1303,18 @@ final class SupabaseGateway {
         guard let client else { return }
         try await client.from("messages")
             .insert(message)
+            .execute()
+    }
+
+    func markMessagesRead(_ messageIDs: Set<String>) async throws {
+        guard let client, !messageIDs.isEmpty else { return }
+        let session = try await client.auth.session
+        let now = ISO8601DateFormatter().string(from: Date())
+        let rows = messageIDs.map { messageID in
+            MessageReadReceiptRow(messageID: messageID, profileID: session.user.id, readAt: now)
+        }
+        try await client.from("message_read_receipts")
+            .upsert(rows, onConflict: "message_id,profile_id")
             .execute()
     }
 

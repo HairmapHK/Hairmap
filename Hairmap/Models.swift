@@ -908,4 +908,5 @@ struct CatalogPayload {
     var likedCommentIDs: Set<String> = []
     var blockedChatStylistIDs: Set<String> = []
     var blockedUserIDs: Set<UUID> = []
+    var readMessageIDs: Set<String> = []
 }

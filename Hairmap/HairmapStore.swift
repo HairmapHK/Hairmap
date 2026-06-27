@@ -35,6 +35,7 @@ final class HairmapStore {
     private var realtimeTask: Task<Void, Never>?
     private var realtimeRefreshTask: Task<Void, Never>?
     private let pendingSocialRoleKey = "hairmap.pending-social-auth-role"
+    private let readMessageIDsKeyPrefix = "hairmap.read-message-ids."
     private var hasCompletedInitialCatalogSync = false
     private var didRequestNotificationPermission = false
     private var isResolvingAuthenticatedRole = false
@@ -150,6 +151,7 @@ final class HairmapStore {
                 likedLookIDs = payload.likedLookIDs
                 likedCommentIDs = payload.likedCommentIDs
                 blockedChatStylistIDs = payload.blockedChatStylistIDs
+                applyReadMessageState(serverReadMessageIDs: payload.readMessageIDs)
             }
             blockedUserIDs = activeBlockedUserIDs
             syncCurrentStylistProfileFromCatalog()
@@ -1461,6 +1463,8 @@ final class HairmapStore {
             .filter { $0.stylistID == stylistID && $0.senderRole == .stylist }
             .map(\.id)
         customerReadMessageIDs.formUnion(ids)
+        persistReadMessageIDs(customerReadMessageIDs)
+        syncReadReceipts(Set(ids))
     }
 
     func stylistUnreadMessageCount(stylistID: String) -> Int {
@@ -1482,6 +1486,52 @@ final class HairmapStore {
             }
             .map(\.id)
         stylistReadMessageIDs.formUnion(ids)
+        persistReadMessageIDs(stylistReadMessageIDs)
+        syncReadReceipts(Set(ids))
+    }
+
+    private func applyReadMessageState(serverReadMessageIDs: Set<String>) {
+        guard let profile = currentProfile else {
+            customerReadMessageIDs = []
+            stylistReadMessageIDs = []
+            return
+        }
+
+        let localIDs = persistedReadMessageIDs(for: profile.id)
+        let mergedIDs = localIDs.union(serverReadMessageIDs)
+        switch profile.role {
+        case .customer:
+            customerReadMessageIDs = mergedIDs
+            stylistReadMessageIDs = []
+        case .stylist:
+            stylistReadMessageIDs = mergedIDs
+            customerReadMessageIDs = []
+        }
+        persistReadMessageIDs(mergedIDs, for: profile.id)
+    }
+
+    private func persistReadMessageIDs(_ ids: Set<String>) {
+        guard let profileID = currentProfile?.id else { return }
+        persistReadMessageIDs(ids, for: profileID)
+    }
+
+    private func persistReadMessageIDs(_ ids: Set<String>, for profileID: UUID) {
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: readMessageIDsKey(for: profileID))
+    }
+
+    private func persistedReadMessageIDs(for profileID: UUID) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: readMessageIDsKey(for: profileID)) ?? [])
+    }
+
+    private func readMessageIDsKey(for profileID: UUID) -> String {
+        "\(readMessageIDsKeyPrefix)\(profileID.uuidString.lowercased())"
+    }
+
+    private func syncReadReceipts(_ ids: Set<String>) {
+        guard !ids.isEmpty, gateway.isConfigured, !isLocalExperience else { return }
+        Task { [gateway] in
+            try? await gateway.markMessagesRead(ids)
+        }
     }
 
     func submitReport(entityType: ReportEntityType, entityID: String, reason: String, details: String = "") {
@@ -1797,6 +1847,7 @@ final class HairmapStore {
             role: role,
             stylistID: role == .stylist ? metadata["stylist_id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty : nil
         )
+        applyReadMessageState(serverReadMessageIDs: [])
         requestNotificationPermissionIfNeeded()
         statusMessage = "Supabase session 已啟用"
         Task {

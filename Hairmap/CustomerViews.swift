@@ -1247,6 +1247,15 @@ private struct SharedLookCard: View {
         HairmapUI.inspirationImageHeight
     }
 
+    private var mediaBadgeText: String {
+        let slides = mediaSlides(for: look)
+        let count = max(slides.count, 1)
+        if look.mediaKind == .video || slides.first?.mediaKind == .video {
+            return count > 1 ? "VIDEO 1/\(count)" : "VIDEO"
+        }
+        return "1/\(count)"
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Button(action: onOpen) {
@@ -1273,7 +1282,7 @@ private struct SharedLookCard: View {
             ZStack(alignment: .bottomLeading) {
                 SharedLookImage(look: look, height: imageHeight)
                     .overlay(alignment: .topLeading) {
-                        Text(look.mediaKind == .video ? "VIDEO 影片" : "1/4")
+                        Text(mediaBadgeText)
                             .font(.system(size: 8, weight: .black, design: .monospaced))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)

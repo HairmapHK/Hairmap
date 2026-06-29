@@ -160,6 +160,80 @@ enum HairmapDistricts {
     }
 }
 
+enum HairmapExternalLinks {
+    static func normalizedInstagramWebURL(from rawValue: String) -> URL? {
+        let cleanValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanValue.isEmpty else { return nil }
+
+        if let url = URL(string: cleanValue),
+           let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme),
+           let host = url.host?.lowercased(),
+           host.contains("instagram.com") || host.contains("instagr.am") {
+            return url
+        }
+
+        if let handle = instagramHandle(from: cleanValue) {
+            return URL(string: "https://www.instagram.com/\(handle)")
+        }
+
+        let withScheme = "https://\(cleanValue)"
+        if let url = URL(string: withScheme),
+           let host = url.host?.lowercased(),
+           host.contains("instagram.com") || host.contains("instagr.am") {
+            return url
+        }
+
+        return nil
+    }
+
+    static func instagramAppURL(from rawValue: String) -> URL? {
+        guard let handle = instagramHandle(from: rawValue) else { return nil }
+        return URL(string: "instagram://user?username=\(handle)")
+    }
+
+    static func instagramDisplayText(from rawValue: String) -> String {
+        if let handle = instagramHandle(from: rawValue) {
+            return "@\(handle)"
+        }
+        return "Instagram"
+    }
+
+    private static func instagramHandle(from rawValue: String) -> String? {
+        let cleanValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanValue.isEmpty else { return nil }
+
+        if let url = URL(string: cleanValue),
+           url.scheme?.lowercased() == "instagram",
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let username = components.queryItems?.first(where: { $0.name == "username" })?.value {
+            return sanitizedInstagramHandle(username)
+        }
+
+        let urlCandidate = cleanValue.contains("://") ? cleanValue : "https://\(cleanValue)"
+        if let components = URLComponents(string: urlCandidate),
+           let host = components.host?.lowercased(),
+           host.contains("instagram.com") || host.contains("instagr.am") {
+            let firstPathComponent = components.path
+                .split(separator: "/")
+                .first
+                .map(String.init)
+            return firstPathComponent.flatMap(sanitizedInstagramHandle)
+        }
+
+        let withoutAt = cleanValue.hasPrefix("@") ? String(cleanValue.dropFirst()) : cleanValue
+        return sanitizedInstagramHandle(withoutAt)
+    }
+
+    private static func sanitizedInstagramHandle(_ rawValue: String) -> String? {
+        let cleanValue = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: " /?\n\r\t"))
+        guard (1...30).contains(cleanValue.count) else { return nil }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._")
+        guard cleanValue.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return cleanValue
+    }
+}
+
 struct Salon: Identifiable, Codable, Hashable {
     var id: String
     var name: String
@@ -170,6 +244,7 @@ struct Salon: Identifiable, Codable, Hashable {
     var tags: [String]
     var openHours: String
     var phone: String
+    var instagramURL: String
     var startPrice: Int
     var imageURL: String
     var isActive: Bool = true
@@ -186,6 +261,7 @@ struct Salon: Identifiable, Codable, Hashable {
         case tags
         case openHours = "open_hours"
         case phone
+        case instagramURL = "instagram_url"
         case startPrice = "start_price"
         case imageURL = "image_url"
         case isActive = "is_active"
@@ -203,6 +279,7 @@ struct Salon: Identifiable, Codable, Hashable {
         tags: [String],
         openHours: String,
         phone: String,
+        instagramURL: String = "",
         startPrice: Int,
         imageURL: String,
         isActive: Bool = true,
@@ -218,6 +295,7 @@ struct Salon: Identifiable, Codable, Hashable {
         self.tags = tags
         self.openHours = openHours
         self.phone = phone
+        self.instagramURL = instagramURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.startPrice = startPrice
         self.imageURL = imageURL
         self.isActive = isActive
@@ -237,6 +315,7 @@ struct Salon: Identifiable, Codable, Hashable {
         tags = try container.decode([String].self, forKey: .tags)
         openHours = try container.decode(String.self, forKey: .openHours)
         phone = try container.decode(String.self, forKey: .phone)
+        instagramURL = try container.decodeIfPresent(String.self, forKey: .instagramURL) ?? ""
         startPrice = try container.decode(Int.self, forKey: .startPrice)
         imageURL = try container.decode(String.self, forKey: .imageURL)
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
@@ -328,6 +407,7 @@ struct Stylist: Identifiable, Codable, Hashable {
     var specialties: [String]
     var avatarURL: String
     var phone: String
+    var instagramURL: String
     var bio: String
     var basePrice: Int
     var works: [PortfolioWork]
@@ -352,6 +432,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         case specialties
         case avatarURL = "avatar_url"
         case phone
+        case instagramURL = "instagram_url"
         case bio
         case basePrice = "base_price"
         case isActive = "is_active"
@@ -374,6 +455,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         specialties: [String],
         avatarURL: String,
         phone: String = "",
+        instagramURL: String = "",
         bio: String,
         basePrice: Int,
         works: [PortfolioWork] = [],
@@ -397,6 +479,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         self.specialties = specialties
         self.avatarURL = avatarURL
         self.phone = phone
+        self.instagramURL = instagramURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.bio = bio
         self.basePrice = basePrice
         self.works = works
@@ -424,6 +507,7 @@ struct Stylist: Identifiable, Codable, Hashable {
         specialties = try container.decode([String].self, forKey: .specialties)
         avatarURL = try container.decode(String.self, forKey: .avatarURL)
         phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        instagramURL = try container.decodeIfPresent(String.self, forKey: .instagramURL) ?? ""
         bio = try container.decodeIfPresent(String.self, forKey: .bio) ?? ""
         basePrice = try container.decodeIfPresent(Int.self, forKey: .basePrice) ?? 0
         works = []
@@ -485,6 +569,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
     var specialties: [String]
     var avatarURL: String
     var phone: String?
+    var instagramURL: String
     var bio: String
     var basePrice: Int
     var servicesPayload: [ServiceItem]
@@ -512,6 +597,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         case specialties
         case avatarURL = "avatar_url"
         case phone
+        case instagramURL = "instagram_url"
         case bio
         case basePrice = "base_price"
         case servicesPayload = "services_payload"
@@ -540,6 +626,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         specialties = stylist.specialties
         avatarURL = stylist.avatarURL
         phone = stylist.phone
+        instagramURL = stylist.instagramURL
         bio = stylist.bio
         basePrice = stylist.basePrice
         servicesPayload = stylist.services
@@ -564,6 +651,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
             specialties: specialties,
             avatarURL: avatarURL,
             phone: phone ?? "",
+            instagramURL: instagramURL,
             bio: bio,
             basePrice: basePrice,
             works: worksPayload,
@@ -598,6 +686,7 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         specialties = try container.decode([String].self, forKey: .specialties)
         avatarURL = try container.decode(String.self, forKey: .avatarURL)
         phone = try container.decodeIfPresent(String.self, forKey: .phone)
+        instagramURL = try container.decodeIfPresent(String.self, forKey: .instagramURL) ?? ""
         bio = try container.decodeIfPresent(String.self, forKey: .bio) ?? ""
         basePrice = try container.decodeIfPresent(Int.self, forKey: .basePrice) ?? 0
         servicesPayload = try container.decodeIfPresent([ServiceItem].self, forKey: .servicesPayload) ?? []
@@ -618,6 +707,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
     var tags: [String]
     var openHours: String
     var phone: String
+    var instagramURL: String
     var startPrice: Int
     var imageURL: String
     var worksPayload: [PortfolioWork]
@@ -636,6 +726,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         case tags
         case openHours = "open_hours"
         case phone
+        case instagramURL = "instagram_url"
         case startPrice = "start_price"
         case imageURL = "image_url"
         case worksPayload = "works_payload"
@@ -655,6 +746,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         tags = salon.tags
         openHours = salon.openHours
         phone = salon.phone
+        instagramURL = salon.instagramURL
         startPrice = salon.startPrice
         imageURL = salon.imageURL
         worksPayload = works
@@ -673,6 +765,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
             tags: tags,
             openHours: openHours,
             phone: phone,
+            instagramURL: instagramURL,
             startPrice: startPrice,
             imageURL: imageURL,
             isActive: true,
@@ -696,6 +789,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         tags = try container.decode([String].self, forKey: .tags)
         openHours = try container.decode(String.self, forKey: .openHours)
         phone = try container.decode(String.self, forKey: .phone)
+        instagramURL = try container.decodeIfPresent(String.self, forKey: .instagramURL) ?? ""
         startPrice = try container.decode(Int.self, forKey: .startPrice)
         imageURL = try container.decode(String.self, forKey: .imageURL)
         worksPayload = try container.decodeIfPresent([PortfolioWork].self, forKey: .worksPayload) ?? []

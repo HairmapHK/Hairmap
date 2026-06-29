@@ -1980,6 +1980,7 @@ struct UserProfileView: View {
     @State private var stylistLanguages = "中 / 粵 / 英"
     @State private var stylistDistrict = "尖沙咀"
     @State private var stylistAddress = ""
+    @State private var stylistInstagramURL = ""
     @State private var stylistTags: Set<String> = ["挑染專家", "經典剪髮", "歐美挑染"]
     @State private var selectedAvatarURL = ProfileSeed.avatarChoices[0].url
     @State private var customAvatarURL = ""
@@ -1996,6 +1997,7 @@ struct UserProfileView: View {
     @State private var salonName = ""
     @State private var salonDistrict = "尖沙咀"
     @State private var salonAddress = ""
+    @State private var salonInstagramURL = ""
     @State private var salonPhone = "+852 2345 6789"
     @State private var salonHours = "11:00 - 20:00"
     @State private var salonStartPrice = "480"
@@ -2059,6 +2061,7 @@ struct UserProfileView: View {
                                 bio: $stylistBio,
                                 district: $stylistDistrict,
                                 address: $stylistAddress,
+                                instagramURL: $stylistInstagramURL,
                                 experience: $stylistExperience,
                                 languages: $stylistLanguages,
                                 services: $stylistServiceDrafts,
@@ -2081,6 +2084,7 @@ struct UserProfileView: View {
                                 name: $salonName,
                                 district: $salonDistrict,
                                 address: $salonAddress,
+                                instagramURL: $salonInstagramURL,
                                 phone: $salonPhone,
                                 hours: $salonHours,
                                 startPrice: $salonStartPrice,
@@ -2227,6 +2231,7 @@ struct UserProfileView: View {
             specialties: Array(stylistTags),
             avatarURL: avatar,
             phone: stylistPhone.trimmingCharacters(in: .whitespacesAndNewlines),
+            instagramURL: stylistInstagramURL.trimmingCharacters(in: .whitespacesAndNewlines),
             bio: stylistBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "擁有多年沙龍經驗，擅長依照個人頭骨與臉型設計專屬層次剪裁。" : stylistBio,
             basePrice: services.first?.price ?? 380,
             works: finalWorks,
@@ -2271,6 +2276,7 @@ struct UserProfileView: View {
             tags: Array(salonTags),
             openHours: salonHours,
             phone: salonPhone,
+            instagramURL: salonInstagramURL.trimmingCharacters(in: .whitespacesAndNewlines),
             startPrice: Int(salonStartPrice) ?? 480,
             imageURL: coverURL
         )
@@ -3327,6 +3333,7 @@ private struct ProfileStylistCreatePanel: View {
     @Binding var bio: String
     @Binding var district: String
     @Binding var address: String
+    @Binding var instagramURL: String
     @Binding var experience: String
     @Binding var languages: String
     @Binding var services: [ProfileServiceDraft]
@@ -3356,6 +3363,7 @@ private struct ProfileStylistCreatePanel: View {
             ProfileField(title: "髮型師聯絡電話", required: true, placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
             ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
             ProfileField(title: "服務地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
+            ProfileField(title: "Instagram 連結 / @帳號", placeholder: "@hairmaphk 或 https://instagram.com/hairmaphk", text: $instagramURL, keyboard: .URL)
             ProfileTextArea(title: "個人簡介", placeholder: "例如: 擁有10年以上沙龍經驗，擅長歐美漸層手刷染、Balayage，針對個人頭骨與臉型設計專屬層次剪裁。", text: $bio)
 
             HStack(spacing: 10) {
@@ -3412,6 +3420,7 @@ private struct ProfileSalonCreatePanel: View {
     @Binding var name: String
     @Binding var district: String
     @Binding var address: String
+    @Binding var instagramURL: String
     @Binding var phone: String
     @Binding var hours: String
     @Binding var startPrice: String
@@ -3441,6 +3450,7 @@ private struct ProfileSalonCreatePanel: View {
             ProfileField(title: "沙龍名稱", required: true, placeholder: "例如: Artisan Space, Noir Prestige Salon", text: $name)
             ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
             ProfileField(title: "沙龍地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
+            ProfileField(title: "Instagram 連結 / @帳號", placeholder: "@salonhk 或 https://instagram.com/salonhk", text: $instagramURL, keyboard: .URL)
 
             HStack(spacing: 10) {
                 ProfileField(title: "聯絡電話", placeholder: "+852 2345 6789", text: $phone, keyboard: .phonePad)

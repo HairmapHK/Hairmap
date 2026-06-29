@@ -26,7 +26,7 @@ struct StylistDashboardView: View {
     @State private var customServicePrice = ""
     @State private var customWorkTitle = ""
     @State private var customWorkURL = ""
-    @State private var instagramURL = "https://images.unsplash.com/portfolio-balayage-hairs"
+    @State private var instagramURL = ""
     @State private var pickedAvatarItem: PhotosPickerItem?
     @State private var pickedWorkItems: [PhotosPickerItem] = []
     @State private var uploadedAvatarData: Data?
@@ -156,6 +156,7 @@ struct StylistDashboardView: View {
         profileBio = hasApprovedProfile ? stylist.bio : ""
         profileExperience = stylist.experience
         profileLanguages = stylist.languages
+        instagramURL = hasApprovedProfile ? stylist.instagramURL : ""
         profileAvatarURL = hasApprovedProfile ? stylist.avatarURL : (store.currentProfile?.avatarURL.nilIfEmpty ?? stylist.avatarURL)
         selectedTags = hasApprovedProfile ? Set(stylist.specialties) : ["挑染專家", "經典剪髮"]
         profileWorks = hasApprovedProfile ? stylist.works : []
@@ -244,6 +245,7 @@ struct StylistDashboardView: View {
         updated.bio = profileBio
         updated.experience = profileExperience
         updated.languages = profileLanguages
+        updated.instagramURL = instagramURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let avatarSource = profileAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? updated.avatarURL : profileAvatarURL
         updated.avatarURL = await store.uploadProfileMediaIfNeeded(avatarSource, folder: "dashboard-avatars")
         updated.specialties = Array(selectedTags).sorted()
@@ -1839,7 +1841,7 @@ private struct StylistProfileWorkspace: View {
                         pickedWorkItems: $pickedWorkItems
                     )
 
-                    DashboardInputField(label: "設計師線上 IG 專案作品連結", placeholder: "https://...", text: $instagramURL)
+                    DashboardInputField(label: "Instagram 連結 / @帳號", placeholder: "@hairmaphk 或 https://instagram.com/hairmaphk", text: $instagramURL)
 
                     Button(action: onSubmitForReview) {
                         Text(hasApprovedProfile ? "提交個人檔案更新審批" : "提交髮型師檔案審批")

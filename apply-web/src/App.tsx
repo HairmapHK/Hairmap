@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   ImagePlus,
+  Instagram,
   Loader2,
   Mail,
   Phone,
@@ -62,6 +63,7 @@ function App() {
   const [stylistLanguages, setStylistLanguages] = useState('中 / 粵 / 英');
   const [stylistDistrict, setStylistDistrict] = useState('尖沙咀');
   const [stylistWorkplace, setStylistWorkplace] = useState('');
+  const [stylistInstagramURL, setStylistInstagramURL] = useState('');
   const [stylistBio, setStylistBio] = useState('');
   const [stylistBasePrice, setStylistBasePrice] = useState('380');
   const [stylistTags, setStylistTags] = useState<string[]>(['挑染專家', '經典剪髮']);
@@ -71,6 +73,7 @@ function App() {
   const [salonName, setSalonName] = useState('');
   const [salonLocation, setSalonLocation] = useState('');
   const [salonDistrict, setSalonDistrict] = useState('尖沙咀');
+  const [salonInstagramURL, setSalonInstagramURL] = useState('');
   const [salonPhone, setSalonPhone] = useState('');
   const [salonHours, setSalonHours] = useState('11:00 - 20:00');
   const [salonStartPrice, setSalonStartPrice] = useState('480');
@@ -145,6 +148,7 @@ function App() {
       salon_id: 'independent-stylist-studio',
       district: stylistDistrict,
       location: stylistWorkplace.trim(),
+      instagram_url: stylistInstagramURL.trim(),
       name: stylistName.trim(),
       title: stylistTitle.trim(),
       rating: 5,
@@ -167,6 +171,7 @@ function App() {
         `髮型師電話：${stylistPhone}`,
         `地區：${stylistDistrict}`,
         `工作室 / 服務地址：${stylistWorkplace.trim()}`,
+        `Instagram：${stylistInstagramURL.trim() || '未提供'}`,
         `作品數量：${workURLs.length}`,
       ].join('\n'),
     });
@@ -199,6 +204,7 @@ function App() {
       name: salonName.trim(),
       location: salonLocation.trim(),
       district: salonDistrict,
+      instagram_url: salonInstagramURL.trim(),
       distance: 0,
       rating: 5,
       tags: salonTags,
@@ -216,6 +222,7 @@ function App() {
         `沙龍電話：${salonPhone}`,
         `地區：${salonDistrict}`,
         `地址：${salonLocation}`,
+        `Instagram：${salonInstagramURL.trim() || '未提供'}`,
         `特色：${salonFeatures.join('、') || '未提供'}`,
         `介紹：${salonIntro}`,
         `服務：${services.map((item) => `${item.name} HK$${item.price}`).join('；')}`,
@@ -324,6 +331,7 @@ function App() {
                   <Field label="年資" value={stylistExperience} onChange={setStylistExperience} placeholder="例如：8年資歷" />
                   <Field label="語言" value={stylistLanguages} onChange={setStylistLanguages} placeholder="例如：中 / 粵 / 英" />
                   <Field label="工作室 / 服務地址" value={stylistWorkplace} onChange={setStylistWorkplace} placeholder="例如：尖沙咀海港城 3 樓 3045 號舖" required className="span-2" />
+                  <Field label="Instagram 連結 / @帳號" value={stylistInstagramURL} onChange={setStylistInstagramURL} placeholder="@hairmaphk 或 https://instagram.com/hairmaphk" icon={<Instagram size={16} />} className="span-2" />
                   <Textarea label="個人簡介 Bio" value={stylistBio} onChange={setStylistBio} placeholder="介紹您的專長、服務風格、常見客群與作品方向。" required className="span-2" />
                   <Field label="最低服務價 HK$" value={stylistBasePrice} onChange={setStylistBasePrice} placeholder="380" />
                 </div>
@@ -343,6 +351,7 @@ function App() {
                   <Field label="沙龍名稱" value={salonName} onChange={setSalonName} placeholder="例如：Maison de Beauté" required />
                   <SelectField label="主要地區" value={salonDistrict} onChange={setSalonDistrict} options={DISTRICTS} />
                   <Field label="完整地址" value={salonLocation} onChange={setSalonLocation} placeholder="例如：尖沙咀海港城 3 樓 3045 號舖" required className="span-2" />
+                  <Field label="Instagram 連結 / @帳號" value={salonInstagramURL} onChange={setSalonInstagramURL} placeholder="@salonhk 或 https://instagram.com/salonhk" icon={<Instagram size={16} />} className="span-2" />
                   <Field label="沙龍電話" value={salonPhone} onChange={setSalonPhone} placeholder="+852 2345 6789" required icon={<Phone size={16} />} />
                   <Field label="營業時間" value={salonHours} onChange={setSalonHours} placeholder="11:00 - 20:00" />
                   <Field label="最低服務價 HK$" value={salonStartPrice} onChange={setSalonStartPrice} placeholder="480" />

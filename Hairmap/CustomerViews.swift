@@ -3142,6 +3142,7 @@ struct StylistProfileView: View {
 
     private var stylistContactSection: some View {
         let phone = stylist.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instagramWebURL = HairmapExternalLinks.normalizedInstagramWebURL(from: stylist.instagramURL)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "phone.fill")
@@ -3201,8 +3202,50 @@ struct StylistProfileView: View {
             }
             .buttonStyle(PressableButtonStyle())
             .disabled(phone.isEmpty)
+
+            if instagramWebURL != nil {
+                Button(action: openStylistInstagram) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "camera.circle.fill")
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                            .frame(width: 36, height: 36)
+                            .background(Color(red: 1.0, green: 0.95, blue: 0.76), in: Circle())
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(HairmapExternalLinks.instagramDisplayText(from: stylist.instagramURL))
+                                .font(.system(size: 15, weight: .black))
+                                .foregroundStyle(HairmapUI.ink)
+                            Text("點擊跳轉到 Instagram 查看作品")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .black))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .frame(width: HairmapUI.contentWidth)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(HairmapUI.line, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+            }
         }
         .frame(width: HairmapUI.contentWidth, alignment: .leading)
+    }
+
+    private func openStylistInstagram() {
+        guard let webURL = HairmapExternalLinks.normalizedInstagramWebURL(from: stylist.instagramURL) else { return }
+        if let appURL = HairmapExternalLinks.instagramAppURL(from: stylist.instagramURL) {
+            openURL(appURL) { accepted in
+                if !accepted {
+                    openURL(webURL)
+                }
+            }
+        } else {
+            openURL(webURL)
+        }
     }
 
     private func callStylist() {
@@ -4212,6 +4255,19 @@ struct SalonProfileView: View {
         openURL(url)
     }
 
+    private func openSalonInstagram() {
+        guard let webURL = HairmapExternalLinks.normalizedInstagramWebURL(from: salon.instagramURL) else { return }
+        if let appURL = HairmapExternalLinks.instagramAppURL(from: salon.instagramURL) {
+            openURL(appURL) { accepted in
+                if !accepted {
+                    openURL(webURL)
+                }
+            }
+        } else {
+            openURL(webURL)
+        }
+    }
+
     private var salonHero: some View {
         ZStack(alignment: .bottomLeading) {
             RemoteImage(urlString: salon.imageURL, height: HairmapUI.salonHeroHeight)
@@ -4247,7 +4303,8 @@ struct SalonProfileView: View {
     }
 
     private var salonInfo: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let instagramWebURL = HairmapExternalLinks.normalizedInstagramWebURL(from: salon.instagramURL)
+        return VStack(alignment: .leading, spacing: 16) {
             Text("沙龍優勢與特徵 Info")
                 .font(.system(size: 20, weight: .black))
             VStack(alignment: .leading, spacing: 12) {
@@ -4273,6 +4330,32 @@ struct SalonProfileView: View {
                 }
                 .padding(12)
                 .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                if instagramWebURL != nil {
+                    Button(action: openSalonInstagram) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "camera.circle.fill")
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(HairmapExternalLinks.instagramDisplayText(from: salon.instagramURL))
+                                    .font(.system(size: 13, weight: .black))
+                                    .foregroundStyle(HairmapUI.ink)
+                                    .lineLimit(1)
+                                Text("點擊跳轉到 Instagram 查看沙龍作品")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .black))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(12)
+                        .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 8)], spacing: 8) {
                     ForEach(["免費進口氣泡水/手沖咖啡", "專屬充電牆座與千兆 Wi-Fi", "頭皮敏感隔離修護與音樂舒壓"], id: \.self) { item in

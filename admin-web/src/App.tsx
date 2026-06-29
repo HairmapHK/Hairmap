@@ -581,6 +581,7 @@ function Applications({
                 status={item.status}
                 chips={[
                   item.claimed_by ? '已連接 App 帳號' : item.status === 'approved' ? '待同 email 註冊自動連接' : '待批准後可自動連接',
+                  item.instagram_url ? 'IG 已提供' : '',
                   item.experience,
                   item.languages,
                   ...item.specialties.slice(0, 3),
@@ -609,7 +610,7 @@ function Applications({
                 title={item.name}
                 subtitle={`${item.location} · ${item.phone || '未填電話'}`}
                 status={item.status}
-                chips={[item.open_hours, `HK$${item.start_price}`, ...item.tags.slice(0, 3)]}
+                chips={[item.instagram_url ? 'IG 已提供' : '', item.open_hours, `HK$${item.start_price}`, ...item.tags.slice(0, 3)]}
                 onView={() => setDetail({ kind: 'salonApplication', item })}
                 actions={
                   <>
@@ -1052,6 +1053,8 @@ async function approveStylistApplication(application: StylistApplication, userID
     id: application.stylist_id,
     owner_id: application.owner_id,
     salon_id: application.salon_id,
+    district: application.district ?? '',
+    location: application.location ?? '',
     name: application.name,
     title: application.title,
     rating: application.rating,
@@ -1061,6 +1064,7 @@ async function approveStylistApplication(application: StylistApplication, userID
     specialties: application.specialties ?? [],
     avatar_url: application.avatar_url,
     phone: application.phone ?? '',
+    instagram_url: application.instagram_url ?? '',
     bio: application.bio ?? '',
     base_price: application.base_price,
     is_active: true,
@@ -1098,11 +1102,13 @@ async function approveSalonApplication(application: SalonApplication, userID: st
     id: application.salon_id,
     name: application.name,
     location: application.location,
+    district: application.district ?? '',
     distance: application.distance,
     rating: application.rating,
     tags: application.tags ?? [],
     open_hours: application.open_hours,
     phone: application.phone,
+    instagram_url: application.instagram_url ?? '',
     start_price: application.start_price,
     image_url: application.image_url,
     is_active: true,

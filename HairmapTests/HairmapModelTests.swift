@@ -71,6 +71,7 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertEqual(stylist.displayOrder, 100)
         XCTAssertEqual(stylist.district, "")
         XCTAssertEqual(stylist.location, "")
+        XCTAssertEqual(stylist.instagramURL, "")
         XCTAssertTrue(stylist.works.isEmpty)
         XCTAssertTrue(stylist.services.isEmpty)
         XCTAssertTrue(stylist.reviews.isEmpty)
@@ -132,6 +133,7 @@ final class HairmapModelTests: XCTestCase {
             experience: "5年資歷",
             specialties: ["日系剪裁"],
             avatarURL: "https://example.com/avatar.jpg",
+            instagramURL: "@newstylist",
             bio: "擅長自然層次。",
             basePrice: 380,
             works: [work],
@@ -147,6 +149,7 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertEqual(publicStylist.works, [work])
         XCTAssertEqual(publicStylist.district, "尖沙咀")
         XCTAssertEqual(publicStylist.location, "尖沙咀海港城3樓3045號舖")
+        XCTAssertEqual(publicStylist.instagramURL, "@newstylist")
         XCTAssertTrue(publicStylist.isActive)
         XCTAssertFalse(publicStylist.isFeatured)
 
@@ -160,6 +163,7 @@ final class HairmapModelTests: XCTestCase {
             tags: ["日系剪裁"],
             openHours: "10:00 - 20:00",
             phone: "+852 2345 6789",
+            instagramURL: "https://instagram.com/newsalon",
             startPrice: 1200,
             imageURL: "https://example.com/salon.jpg"
         )
@@ -171,7 +175,20 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertEqual(publicSalon.id, "salon-new")
         XCTAssertEqual(publicSalon.district, "中環")
         XCTAssertEqual(publicSalon.location, "中環皇后大道中88號")
+        XCTAssertEqual(publicSalon.instagramURL, "https://instagram.com/newsalon")
         XCTAssertTrue(publicSalon.isActive)
         XCTAssertFalse(publicSalon.isFeatured)
+    }
+
+    func testInstagramLinksNormalizeForAppAndWebOpen() {
+        XCTAssertEqual(
+            HairmapExternalLinks.normalizedInstagramWebURL(from: "@hairmaphk")?.absoluteString,
+            "https://www.instagram.com/hairmaphk"
+        )
+        XCTAssertEqual(
+            HairmapExternalLinks.instagramAppURL(from: "https://www.instagram.com/hairmaphk/")?.absoluteString,
+            "instagram://user?username=hairmaphk"
+        )
+        XCTAssertEqual(HairmapExternalLinks.instagramDisplayText(from: "instagram.com/hairmap.hk"), "@hairmap.hk")
     }
 }

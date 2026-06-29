@@ -50,6 +50,8 @@ export type Stylist = {
   id: string;
   owner_id: string | null;
   salon_id: string;
+  district: string;
+  location: string;
   name: string;
   title: string;
   rating: number;
@@ -59,6 +61,7 @@ export type Stylist = {
   specialties: string[];
   avatar_url: string;
   phone: string;
+  instagram_url: string;
   bio: string;
   base_price: number;
   is_active: boolean;
@@ -73,11 +76,13 @@ export type Salon = {
   id: string;
   name: string;
   location: string;
+  district: string;
   distance: number;
   rating: number;
   tags: string[];
   open_hours: string;
   phone: string;
+  instagram_url: string;
   start_price: number;
   image_url: string;
   is_active: boolean;
@@ -97,6 +102,8 @@ export type StylistApplication = {
   claimed_by: string | null;
   claimed_at: string | null;
   salon_id: string;
+  district: string;
+  location: string;
   name: string;
   title: string;
   rating: number;
@@ -106,6 +113,7 @@ export type StylistApplication = {
   specialties: string[];
   avatar_url: string;
   phone: string;
+  instagram_url: string;
   bio: string;
   base_price: number;
   services_payload: ServiceItem[];
@@ -124,11 +132,13 @@ export type SalonApplication = {
   salon_id: string;
   name: string;
   location: string;
+  district: string;
   distance: number;
   rating: number;
   tags: string[];
   open_hours: string;
   phone: string;
+  instagram_url: string;
   start_price: number;
   image_url: string;
   works_payload: PortfolioWork[];

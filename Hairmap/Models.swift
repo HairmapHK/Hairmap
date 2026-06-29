@@ -124,10 +124,47 @@ struct HairmapProfile: Identifiable, Codable, Hashable {
     }
 }
 
+enum HairmapDistricts {
+    static let regions: [(name: String, districts: [String])] = [
+        ("香港島", ["中環", "金鐘", "灣仔", "銅鑼灣", "天后", "北角", "鰂魚涌", "太古", "西灣河", "筲箕灣", "柴灣", "上環", "西營盤", "堅尼地城", "香港仔", "黃竹坑", "鴨脷洲", "赤柱"]),
+        ("九龍", ["尖沙咀", "佐敦", "油麻地", "旺角", "太子", "深水埗", "長沙灣", "荔枝角", "九龍塘", "石硤尾", "何文田", "土瓜灣", "紅磡", "黃埔", "九龍城", "樂富", "黃大仙", "鑽石山", "彩虹", "九龍灣", "牛頭角", "觀塘", "藍田", "油塘"]),
+        ("新界", ["荃灣", "葵芳", "青衣", "沙田", "大圍", "火炭", "馬鞍山", "大埔", "粉嶺", "上水", "元朗", "天水圍", "屯門", "將軍澳", "坑口", "寶琳", "西貢", "清水灣"]),
+        ("離島", ["東涌", "愉景灣", "迪士尼", "長洲", "坪洲", "南丫島", "梅窩", "大澳"])
+    ]
+
+    static let all = regions.flatMap { $0.districts }
+
+    static func inferredDistrict(from text: String) -> String {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return "" }
+        return all
+            .sorted { $0.count > $1.count }
+            .first { cleanText.localizedCaseInsensitiveContains($0) } ?? ""
+    }
+
+    static func displayDistrict(district: String, location: String = "") -> String {
+        let cleanDistrict = district.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanDistrict.isEmpty { return cleanDistrict }
+        let inferred = inferredDistrict(from: location)
+        if !inferred.isEmpty { return inferred }
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanLocation.isEmpty ? "香港" : cleanLocation
+    }
+
+    static func displayLocation(district: String, location: String) -> String {
+        let cleanDistrict = displayDistrict(district: district, location: location)
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanLocation.isEmpty, cleanLocation != "香港" else { return cleanDistrict }
+        guard !cleanLocation.localizedCaseInsensitiveContains(cleanDistrict) else { return cleanLocation }
+        return "\(cleanDistrict) · \(cleanLocation)"
+    }
+}
+
 struct Salon: Identifiable, Codable, Hashable {
     var id: String
     var name: String
     var location: String
+    var district: String
     var distance: Double
     var rating: Double
     var tags: [String]
@@ -143,6 +180,7 @@ struct Salon: Identifiable, Codable, Hashable {
         case id
         case name
         case location
+        case district
         case distance
         case rating
         case tags
@@ -153,6 +191,65 @@ struct Salon: Identifiable, Codable, Hashable {
         case isActive = "is_active"
         case isFeatured = "is_featured"
         case displayOrder = "display_order"
+    }
+
+    init(
+        id: String,
+        name: String,
+        location: String,
+        district: String = "",
+        distance: Double,
+        rating: Double,
+        tags: [String],
+        openHours: String,
+        phone: String,
+        startPrice: Int,
+        imageURL: String,
+        isActive: Bool = true,
+        isFeatured: Bool = false,
+        displayOrder: Int = 100
+    ) {
+        self.id = id
+        self.name = name
+        self.location = location
+        self.district = district.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
+        self.distance = distance
+        self.rating = rating
+        self.tags = tags
+        self.openHours = openHours
+        self.phone = phone
+        self.startPrice = startPrice
+        self.imageURL = imageURL
+        self.isActive = isActive
+        self.isFeatured = isFeatured
+        self.displayOrder = displayOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        location = try container.decode(String.self, forKey: .location)
+        let decodedDistrict = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
+        district = decodedDistrict.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
+        distance = try container.decode(Double.self, forKey: .distance)
+        rating = try container.decode(Double.self, forKey: .rating)
+        tags = try container.decode([String].self, forKey: .tags)
+        openHours = try container.decode(String.self, forKey: .openHours)
+        phone = try container.decode(String.self, forKey: .phone)
+        startPrice = try container.decode(Int.self, forKey: .startPrice)
+        imageURL = try container.decode(String.self, forKey: .imageURL)
+        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        isFeatured = try container.decodeIfPresent(Bool.self, forKey: .isFeatured) ?? false
+        displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
+    }
+
+    var displayDistrict: String {
+        HairmapDistricts.displayDistrict(district: district, location: location)
+    }
+
+    var displayLocation: String {
+        HairmapDistricts.displayLocation(district: district, location: location)
     }
 }
 
@@ -220,6 +317,8 @@ struct Stylist: Identifiable, Codable, Hashable {
     var id: String
     var ownerID: UUID?
     var salonID: String
+    var district: String
+    var location: String
     var name: String
     var title: String
     var rating: Double
@@ -242,6 +341,8 @@ struct Stylist: Identifiable, Codable, Hashable {
         case id
         case ownerID = "owner_id"
         case salonID = "salon_id"
+        case district
+        case location
         case name
         case title
         case rating
@@ -262,6 +363,8 @@ struct Stylist: Identifiable, Codable, Hashable {
         id: String,
         ownerID: UUID? = nil,
         salonID: String,
+        district: String = "",
+        location: String = "",
         name: String,
         title: String,
         rating: Double,
@@ -283,6 +386,8 @@ struct Stylist: Identifiable, Codable, Hashable {
         self.id = id
         self.ownerID = ownerID
         self.salonID = salonID
+        self.district = district.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.location = location.trimmingCharacters(in: .whitespacesAndNewlines)
         self.name = name
         self.title = title
         self.rating = rating
@@ -307,6 +412,9 @@ struct Stylist: Identifiable, Codable, Hashable {
         id = try container.decode(String.self, forKey: .id)
         ownerID = try container.decodeIfPresent(UUID.self, forKey: .ownerID)
         salonID = try container.decode(String.self, forKey: .salonID)
+        let decodedDistrict = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        district = decodedDistrict.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
         name = try container.decode(String.self, forKey: .name)
         title = try container.decode(String.self, forKey: .title)
         rating = try container.decode(Double.self, forKey: .rating)
@@ -324,6 +432,14 @@ struct Stylist: Identifiable, Codable, Hashable {
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         isFeatured = try container.decodeIfPresent(Bool.self, forKey: .isFeatured) ?? false
         displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
+    }
+
+    var displayDistrict: String {
+        HairmapDistricts.displayDistrict(district: district, location: location)
+    }
+
+    var displayLocation: String {
+        HairmapDistricts.displayLocation(district: district, location: location)
     }
 }
 
@@ -358,6 +474,8 @@ struct StylistApplication: Identifiable, Codable, Hashable {
     var claimedBy: UUID?
     var claimedAt: String?
     var salonID: String
+    var district: String
+    var location: String
     var name: String
     var title: String
     var rating: Double
@@ -383,6 +501,8 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         case claimedBy = "claimed_by"
         case claimedAt = "claimed_at"
         case salonID = "salon_id"
+        case district
+        case location
         case name
         case title
         case rating
@@ -409,6 +529,8 @@ struct StylistApplication: Identifiable, Codable, Hashable {
         claimedBy = nil
         claimedAt = nil
         salonID = stylist.salonID
+        district = stylist.district
+        location = stylist.location
         name = stylist.name
         title = stylist.title
         rating = stylist.rating
@@ -431,6 +553,8 @@ struct StylistApplication: Identifiable, Codable, Hashable {
             id: stylistID,
             ownerID: ownerID,
             salonID: salonID,
+            district: district,
+            location: location,
             name: name,
             title: title,
             rating: rating,
@@ -450,6 +574,36 @@ struct StylistApplication: Identifiable, Codable, Hashable {
             displayOrder: 100
         )
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        submittedBy = try container.decodeIfPresent(UUID.self, forKey: .submittedBy)
+        stylistID = try container.decode(String.self, forKey: .stylistID)
+        ownerID = try container.decodeIfPresent(UUID.self, forKey: .ownerID)
+        contactEmail = try container.decodeIfPresent(String.self, forKey: .contactEmail) ?? ""
+        claimedBy = try container.decodeIfPresent(UUID.self, forKey: .claimedBy)
+        claimedAt = try container.decodeIfPresent(String.self, forKey: .claimedAt)
+        salonID = try container.decode(String.self, forKey: .salonID)
+        adminNote = try container.decodeIfPresent(String.self, forKey: .adminNote) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        let decodedDistrict = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
+        district = decodedDistrict.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: "\(location)\n\(adminNote)")
+        name = try container.decode(String.self, forKey: .name)
+        title = try container.decode(String.self, forKey: .title)
+        rating = try container.decode(Double.self, forKey: .rating)
+        reviewsCount = try container.decode(Int.self, forKey: .reviewsCount)
+        languages = try container.decode(String.self, forKey: .languages)
+        experience = try container.decode(String.self, forKey: .experience)
+        specialties = try container.decode([String].self, forKey: .specialties)
+        avatarURL = try container.decode(String.self, forKey: .avatarURL)
+        phone = try container.decodeIfPresent(String.self, forKey: .phone)
+        bio = try container.decodeIfPresent(String.self, forKey: .bio) ?? ""
+        basePrice = try container.decodeIfPresent(Int.self, forKey: .basePrice) ?? 0
+        servicesPayload = try container.decodeIfPresent([ServiceItem].self, forKey: .servicesPayload) ?? []
+        worksPayload = try container.decodeIfPresent([PortfolioWork].self, forKey: .worksPayload) ?? []
+        status = try container.decodeIfPresent(CatalogApplicationStatus.self, forKey: .status) ?? .pending
+    }
 }
 
 struct SalonApplication: Identifiable, Codable, Hashable {
@@ -458,6 +612,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
     var salonID: String
     var name: String
     var location: String
+    var district: String
     var distance: Double
     var rating: Double
     var tags: [String]
@@ -475,6 +630,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         case salonID = "salon_id"
         case name
         case location
+        case district
         case distance
         case rating
         case tags
@@ -493,6 +649,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         salonID = salon.id
         name = salon.name
         location = salon.location
+        district = salon.district
         distance = salon.distance
         rating = salon.rating
         tags = salon.tags
@@ -510,6 +667,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
             id: salonID,
             name: name,
             location: location,
+            district: district,
             distance: distance,
             rating: rating,
             tags: tags,
@@ -521,6 +679,27 @@ struct SalonApplication: Identifiable, Codable, Hashable {
             isFeatured: false,
             displayOrder: 100
         )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        submittedBy = try container.decodeIfPresent(UUID.self, forKey: .submittedBy)
+        salonID = try container.decode(String.self, forKey: .salonID)
+        name = try container.decode(String.self, forKey: .name)
+        location = try container.decode(String.self, forKey: .location)
+        adminNote = try container.decodeIfPresent(String.self, forKey: .adminNote) ?? ""
+        let decodedDistrict = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
+        district = decodedDistrict.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: "\(location)\n\(adminNote)")
+        distance = try container.decode(Double.self, forKey: .distance)
+        rating = try container.decode(Double.self, forKey: .rating)
+        tags = try container.decode([String].self, forKey: .tags)
+        openHours = try container.decode(String.self, forKey: .openHours)
+        phone = try container.decode(String.self, forKey: .phone)
+        startPrice = try container.decode(Int.self, forKey: .startPrice)
+        imageURL = try container.decode(String.self, forKey: .imageURL)
+        worksPayload = try container.decodeIfPresent([PortfolioWork].self, forKey: .worksPayload) ?? []
+        status = try container.decodeIfPresent(CatalogApplicationStatus.self, forKey: .status) ?? .pending
     }
 }
 

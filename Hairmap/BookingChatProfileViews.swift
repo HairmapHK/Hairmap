@@ -44,7 +44,7 @@ struct BookingView: View {
             guard specialtyMatches else { return false }
             guard !cleanSearch.isEmpty else { return true }
             let salon = store.salon(id: item.salonID)
-            let source = ([item.name, item.title, salon.name, salon.location] + item.specialties).joined(separator: " ").lowercased()
+            let source = ([item.name, item.title, item.district, item.location, salon.name, salon.district, salon.location] + item.specialties).joined(separator: " ").lowercased()
             return source.contains(cleanSearch)
         }
     }
@@ -619,7 +619,7 @@ private struct BookingSchedulePage: View {
                         .padding(.vertical, 3)
                         .background(HMTheme.amber, in: Capsule())
                 }
-                Label(salon.name + " (" + salon.location + ")", systemImage: "mappin")
+                Label("\(salon.name) (\(salon.displayLocation))", systemImage: "mappin")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1978,6 +1978,8 @@ struct UserProfileView: View {
     @State private var stylistBio = ""
     @State private var stylistExperience = "5年資歷"
     @State private var stylistLanguages = "中 / 粵 / 英"
+    @State private var stylistDistrict = "尖沙咀"
+    @State private var stylistAddress = ""
     @State private var stylistTags: Set<String> = ["挑染專家", "經典剪髮", "歐美挑染"]
     @State private var selectedAvatarURL = ProfileSeed.avatarChoices[0].url
     @State private var customAvatarURL = ""
@@ -1992,6 +1994,7 @@ struct UserProfileView: View {
     @State private var selectedStylistSamples: Set<String> = []
 
     @State private var salonName = ""
+    @State private var salonDistrict = "尖沙咀"
     @State private var salonAddress = ""
     @State private var salonPhone = "+852 2345 6789"
     @State private var salonHours = "11:00 - 20:00"
@@ -2054,6 +2057,8 @@ struct UserProfileView: View {
                                 title: $stylistTitle,
                                 phone: $stylistPhone,
                                 bio: $stylistBio,
+                                district: $stylistDistrict,
+                                address: $stylistAddress,
                                 experience: $stylistExperience,
                                 languages: $stylistLanguages,
                                 services: $stylistServiceDrafts,
@@ -2074,6 +2079,7 @@ struct UserProfileView: View {
                         case .salon:
                             ProfileSalonCreatePanel(
                                 name: $salonName,
+                                district: $salonDistrict,
                                 address: $salonAddress,
                                 phone: $salonPhone,
                                 hours: $salonHours,
@@ -2153,6 +2159,15 @@ struct UserProfileView: View {
     }
 
     private func createStylistProfileAsync() async {
+        let cleanAddress = stylistAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanAddress.isEmpty else {
+            submissionNotice = ProfileSubmissionNotice(
+                title: "請補充地址",
+                message: "髮型師檔案需要填寫服務地址，客戶才可以在檔案和地區篩選中清楚看到位置。"
+            )
+            return
+        }
+
         let now = Int(Date().timeIntervalSince1970)
         let stylistID = "new-stylist-\(now)"
         let avatarSource = customAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selectedAvatarURL : customAvatarURL
@@ -2201,6 +2216,8 @@ struct UserProfileView: View {
             id: stylistID,
             ownerID: store.currentProfile?.id,
             salonID: store.salons.first?.id ?? "s1",
+            district: stylistDistrict,
+            location: cleanAddress,
             name: stylistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Leo Master" : stylistName,
             title: stylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "首席名店設計師" : stylistTitle,
             rating: 5.0,
@@ -2230,6 +2247,15 @@ struct UserProfileView: View {
     }
 
     private func createSalonProfileAsync() async {
+        let cleanAddress = salonAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanAddress.isEmpty else {
+            submissionNotice = ProfileSubmissionNotice(
+                title: "請補充地址",
+                message: "沙龍檔案需要填寫完整地址，客戶才可以在檔案和地區篩選中清楚看到位置。"
+            )
+            return
+        }
+
         let now = Int(Date().timeIntervalSince1970)
         let salonID = "new-salon-\(now)"
         let cleanCover = customCoverURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2238,7 +2264,8 @@ struct UserProfileView: View {
         let salon = Salon(
             id: salonID,
             name: salonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Artisan Space" : salonName,
-            location: salonAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "尖沙咀海港城" : salonAddress,
+            location: cleanAddress,
+            district: salonDistrict,
             distance: 0.8,
             rating: 5.0,
             tags: Array(salonTags),
@@ -2642,10 +2669,12 @@ private struct ProfileAdminPanel: View {
             stylist.name,
             stylist.title,
             stylist.phone,
+            stylist.district,
             stylist.experience,
             stylist.languages,
             stylist.salonID,
             salons.first(where: { $0.id == stylist.salonID })?.name ?? "",
+            salons.first(where: { $0.id == stylist.salonID })?.district ?? "",
             salons.first(where: { $0.id == stylist.salonID })?.location ?? "",
             stylist.specialties.joined(separator: " "),
             stylist.bio
@@ -2655,6 +2684,7 @@ private struct ProfileAdminPanel: View {
     private func salonSearchIndex(_ salon: Salon) -> String {
         [
             salon.name,
+            salon.district,
             salon.location,
             salon.openHours,
             salon.phone,
@@ -2732,11 +2762,19 @@ private struct ProfileAdminStylistRow: View {
     @Environment(HairmapStore.self) private var store
     let stylist: Stylist
 
+    private var displayLocation: String {
+        let salon = store.salon(id: stylist.salonID)
+        return HairmapDistricts.displayLocation(
+            district: stylist.district.nilIfEmpty ?? salon.district,
+            location: stylist.location.nilIfEmpty ?? salon.displayLocation
+        )
+    }
+
     var body: some View {
         ProfileAdminEntityRow(
             imageURL: stylist.avatarURL,
             title: stylist.name,
-            subtitle: "\(stylist.title) · \(String(format: "%.1f", stylist.rating)) 星",
+            subtitle: "\(displayLocation) · \(stylist.title) · \(String(format: "%.1f", stylist.rating)) 星",
             meta: stylist.specialties.prefix(2).joined(separator: " / "),
             homePosition: stylist.isFeatured ? max(1, stylist.displayOrder) : 0,
             rankingPosition: store.rankingPosition(itemID: stylist.id, itemType: "stylist", rankingKey: "stylist_hot"),
@@ -2758,7 +2796,7 @@ private struct ProfileAdminSalonRow: View {
         ProfileAdminEntityRow(
             imageURL: salon.imageURL,
             title: salon.name,
-            subtitle: "\(salon.location) · HK$\(salon.startPrice) 起",
+            subtitle: "\(salon.displayDistrict) · HK$\(salon.startPrice) 起",
             meta: salon.tags.prefix(2).joined(separator: " / "),
             homePosition: salon.isFeatured ? max(1, salon.displayOrder) : 0,
             rankingPosition: store.rankingPosition(itemID: salon.id, itemType: "salon", rankingKey: "salon_hot"),
@@ -2854,7 +2892,7 @@ private struct ProfileAdminStylistApplicationRow: View {
             imageURL: application.avatarURL,
             badge: "髮型師申請",
             title: application.name,
-            subtitle: "\(application.title) · \(application.experience)",
+            subtitle: "\(HairmapDistricts.displayLocation(district: application.district, location: application.location)) · \(application.title) · \(application.experience)",
             meta: [
                 application.phone?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "未填電話",
                 "\(application.servicesPayload.count) 項服務",
@@ -2876,7 +2914,7 @@ private struct ProfileAdminSalonApplicationRow: View {
             imageURL: application.imageURL,
             badge: "沙龍申請",
             title: application.name,
-            subtitle: "\(application.location) · HK$\(application.startPrice) 起",
+            subtitle: "\(HairmapDistricts.displayLocation(district: application.district, location: application.location)) · HK$\(application.startPrice) 起",
             meta: "\(application.tags.prefix(3).joined(separator: " / ")) · \(application.worksPayload.count) 張作品",
             status: application.status,
             onApprove: { Task { await store.approveSalonApplication(application) } },
@@ -3310,6 +3348,8 @@ private struct ProfileStylistCreatePanel: View {
     @Binding var title: String
     @Binding var phone: String
     @Binding var bio: String
+    @Binding var district: String
+    @Binding var address: String
     @Binding var experience: String
     @Binding var languages: String
     @Binding var services: [ProfileServiceDraft]
@@ -3337,6 +3377,8 @@ private struct ProfileStylistCreatePanel: View {
             ProfileField(title: "設計師姓名", required: true, placeholder: "例如: Leo Master, Marcus Lam", text: $name)
             ProfileField(title: "頭銜職稱", required: true, placeholder: "例如: 歐美挑染專家 / 首席設計師", text: $title)
             ProfileField(title: "髮型師聯絡電話", required: true, placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
+            ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
+            ProfileField(title: "服務地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
             ProfileTextArea(title: "個人簡介", placeholder: "例如: 擁有10年以上沙龍經驗，擅長歐美漸層手刷染、Balayage，針對個人頭骨與臉型設計專屬層次剪裁。", text: $bio)
 
             HStack(spacing: 10) {
@@ -3391,6 +3433,7 @@ private struct ProfileStylistCreatePanel: View {
 
 private struct ProfileSalonCreatePanel: View {
     @Binding var name: String
+    @Binding var district: String
     @Binding var address: String
     @Binding var phone: String
     @Binding var hours: String
@@ -3419,6 +3462,7 @@ private struct ProfileSalonCreatePanel: View {
             )
 
             ProfileField(title: "沙龍名稱", required: true, placeholder: "例如: Artisan Space, Noir Prestige Salon", text: $name)
+            ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
             ProfileField(title: "沙龍地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
 
             HStack(spacing: 10) {

@@ -69,6 +69,8 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertTrue(stylist.isActive)
         XCTAssertFalse(stylist.isFeatured)
         XCTAssertEqual(stylist.displayOrder, 100)
+        XCTAssertEqual(stylist.district, "")
+        XCTAssertEqual(stylist.location, "")
         XCTAssertTrue(stylist.works.isEmpty)
         XCTAssertTrue(stylist.services.isEmpty)
         XCTAssertTrue(stylist.reviews.isEmpty)
@@ -120,6 +122,8 @@ final class HairmapModelTests: XCTestCase {
         let stylist = Stylist(
             id: "stylist-new",
             salonID: "salon-new",
+            district: "尖沙咀",
+            location: "尖沙咀海港城3樓3045號舖",
             name: "New Stylist",
             title: "設計師",
             rating: 5,
@@ -141,13 +145,16 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertEqual(publicStylist.ownerID, submitterID)
         XCTAssertEqual(publicStylist.services, [service])
         XCTAssertEqual(publicStylist.works, [work])
+        XCTAssertEqual(publicStylist.district, "尖沙咀")
+        XCTAssertEqual(publicStylist.location, "尖沙咀海港城3樓3045號舖")
         XCTAssertTrue(publicStylist.isActive)
         XCTAssertFalse(publicStylist.isFeatured)
 
         let salon = Salon(
             id: "salon-new",
             name: "New Salon",
-            location: "中環",
+            location: "中環皇后大道中88號",
+            district: "中環",
             distance: 1.2,
             rating: 5,
             tags: ["日系剪裁"],
@@ -162,6 +169,8 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertEqual(salonApplication.status, .pending)
         XCTAssertEqual(salonApplication.worksPayload, [work])
         XCTAssertEqual(publicSalon.id, "salon-new")
+        XCTAssertEqual(publicSalon.district, "中環")
+        XCTAssertEqual(publicSalon.location, "中環皇后大道中88號")
         XCTAssertTrue(publicSalon.isActive)
         XCTAssertFalse(publicSalon.isFeatured)
     }

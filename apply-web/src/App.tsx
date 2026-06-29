@@ -119,6 +119,7 @@ function App() {
     if (!stylistName.trim()) throw new Error('請填寫髮型師姓名。');
     if (!stylistTitle.trim()) throw new Error('請填寫頭銜職稱。');
     if (!stylistPhone.trim()) throw new Error('請填寫髮型師聯絡電話。');
+    if (!stylistWorkplace.trim()) throw new Error('請填寫髮型師服務地址。');
     if (!stylistBio.trim()) throw new Error('請填寫個人簡介。');
     if (!stylistAvatar.length) throw new Error('請上載一張髮型師頭像。');
 
@@ -140,6 +141,8 @@ function App() {
       owner_id: null,
       contact_email: normalizedApplicantEmail,
       salon_id: 'independent-stylist-studio',
+      district: stylistDistrict,
+      location: stylistWorkplace.trim(),
       name: stylistName.trim(),
       title: stylistTitle.trim(),
       rating: 5,
@@ -161,7 +164,7 @@ function App() {
         `申請人電話：${applicantPhone}`,
         `髮型師電話：${stylistPhone}`,
         `地區：${stylistDistrict}`,
-        `工作室 / 沙龍：${stylistWorkplace || '未提供'}`,
+        `工作室 / 服務地址：${stylistWorkplace.trim()}`,
         `作品數量：${workURLs.length}`,
       ].join('\n'),
     });
@@ -192,7 +195,8 @@ function App() {
       submitted_by: null,
       salon_id: salonID,
       name: salonName.trim(),
-      location: `${salonDistrict} · ${salonLocation.trim()}`,
+      location: salonLocation.trim(),
+      district: salonDistrict,
       distance: 0,
       rating: 5,
       tags: salonTags,
@@ -317,7 +321,7 @@ function App() {
                   <SelectField label="主要地區" value={stylistDistrict} onChange={setStylistDistrict} options={DISTRICTS} />
                   <Field label="年資" value={stylistExperience} onChange={setStylistExperience} placeholder="例如：8年資歷" />
                   <Field label="語言" value={stylistLanguages} onChange={setStylistLanguages} placeholder="例如：中 / 粵 / 英" />
-                  <Field label="所屬工作室 / 沙龍" value={stylistWorkplace} onChange={setStylistWorkplace} placeholder="如未有固定店可留空" className="span-2" />
+                  <Field label="工作室 / 服務地址" value={stylistWorkplace} onChange={setStylistWorkplace} placeholder="例如：尖沙咀海港城 3 樓 3045 號舖" required className="span-2" />
                   <Textarea label="個人簡介 Bio" value={stylistBio} onChange={setStylistBio} placeholder="介紹您的專長、服務風格、常見客群與作品方向。" required className="span-2" />
                   <Field label="最低服務價 HK$" value={stylistBasePrice} onChange={setStylistBasePrice} placeholder="380" />
                 </div>

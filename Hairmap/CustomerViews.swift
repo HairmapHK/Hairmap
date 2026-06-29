@@ -120,12 +120,9 @@ struct DiscoveryView: View {
     @State private var selectedPriceRange: String?
     @State private var selectedRating: Double?
 
-    private let districtRegions: [DiscoveryDistrictRegion] = [
-        DiscoveryDistrictRegion(name: "香港島", districts: ["中環", "金鐘", "灣仔", "銅鑼灣", "天后", "北角", "鰂魚涌", "太古", "西灣河", "筲箕灣", "柴灣", "上環", "西營盤", "堅尼地城", "香港仔", "黃竹坑", "鴨脷洲", "赤柱"]),
-        DiscoveryDistrictRegion(name: "九龍", districts: ["尖沙咀", "佐敦", "油麻地", "旺角", "太子", "深水埗", "長沙灣", "荔枝角", "九龍塘", "石硤尾", "何文田", "土瓜灣", "紅磡", "黃埔", "九龍城", "樂富", "黃大仙", "鑽石山", "彩虹", "九龍灣", "牛頭角", "觀塘", "藍田", "油塘"]),
-        DiscoveryDistrictRegion(name: "新界", districts: ["荃灣", "葵芳", "青衣", "沙田", "大圍", "火炭", "馬鞍山", "大埔", "粉嶺", "上水", "元朗", "天水圍", "屯門", "將軍澳", "坑口", "寶琳", "西貢", "清水灣"]),
-        DiscoveryDistrictRegion(name: "離島", districts: ["東涌", "愉景灣", "迪士尼", "長洲", "坪洲", "南丫島", "梅窩", "大澳"])
-    ]
+    private let districtRegions: [DiscoveryDistrictRegion] = HairmapDistricts.regions.map {
+        DiscoveryDistrictRegion(name: $0.name, districts: $0.districts)
+    }
     private let styleKeywords = ["歐美染髮", "手刷染", "男士理髮", "漸層推剪", "韓式燙髮", "縮毛矯正", "女神大波浪", "線條感挑染"]
     private let priceRanges = ["HK$600以下", "HK$600 - HK$1200", "HK$1200以上"]
     private let ratingOptions: [(String, Double)] = [("4.9星以上", 4.9), ("4.8星以上", 4.8), ("4.7星以上", 4.7)]
@@ -147,12 +144,14 @@ struct DiscoveryView: View {
             let text = [
                 stylist.name,
                 stylist.title,
+                stylist.district,
                 stylist.specialties.joined(separator: " "),
                 salon?.name ?? "",
+                salon?.district ?? "",
                 salon?.location ?? ""
             ].joined(separator: " ")
             let searchMatches = searchText.isEmpty || text.localizedCaseInsensitiveContains(searchText)
-            let districtMatches = selectedDistrict == nil || (salon?.location.localizedCaseInsensitiveContains(selectedDistrict ?? "") ?? false)
+            let districtMatches = selectedDistrict == nil || matchesDistrict(selectedDistrict ?? "", stylist: stylist, salon: salon)
             let styleMatches = selectedStyle == nil
                 || stylist.specialties.contains(selectedStyle ?? "")
                 || (salon?.tags.contains(selectedStyle ?? "") ?? false)
@@ -164,9 +163,9 @@ struct DiscoveryView: View {
 
     private var filteredSalons: [Salon] {
         store.salons.filter { salon in
-            let text = [salon.name, salon.location, salon.tags.joined(separator: " ")].joined(separator: " ")
+            let text = [salon.name, salon.district, salon.location, salon.tags.joined(separator: " ")].joined(separator: " ")
             let searchMatches = searchText.isEmpty || text.localizedCaseInsensitiveContains(searchText)
-            let districtMatches = selectedDistrict == nil || salon.location.localizedCaseInsensitiveContains(selectedDistrict ?? "")
+            let districtMatches = selectedDistrict == nil || matchesDistrict(selectedDistrict ?? "", salon: salon)
             let styleMatches = selectedStyle == nil || salon.tags.contains(selectedStyle ?? "")
             let ratingMatches = selectedRating == nil || salon.rating >= (selectedRating ?? 0)
             let priceMatches = matchesPriceRange(salon.startPrice)
@@ -479,6 +478,23 @@ struct DiscoveryView: View {
         store.salons.first { $0.id == stylist.salonID }
     }
 
+    private func matchesDistrict(_ district: String, stylist: Stylist, salon: Salon?) -> Bool {
+        stylist.district == district
+            || stylist.district.localizedCaseInsensitiveContains(district)
+            || matchesDistrict(district, salon: salon)
+    }
+
+    private func matchesDistrict(_ district: String, salon: Salon?) -> Bool {
+        guard let salon else { return false }
+        return matchesDistrict(district, salon: salon)
+    }
+
+    private func matchesDistrict(_ district: String, salon: Salon) -> Bool {
+        salon.district == district
+            || salon.district.localizedCaseInsensitiveContains(district)
+            || salon.location.localizedCaseInsensitiveContains(district)
+    }
+
     private func rankingOverrides(for key: String, itemType: String) -> [String: RankingOverride] {
         Dictionary(
             uniqueKeysWithValues: store.rankingOverrides
@@ -642,8 +658,11 @@ private struct DiscoveryStylistGridCard: View {
     }
 
     private var shortLocation: String {
-        guard let location = salon?.location else { return "香港" }
-        return location
+        let district = HairmapDistricts.displayDistrict(
+            district: stylist.district,
+            location: salon?.displayDistrict ?? salon?.location ?? ""
+        )
+        return district
             .replacingOccurrences(of: "海港城", with: "")
             .replacingOccurrences(of: "國際金融中心", with: "")
             .replacingOccurrences(of: "時代廣場", with: "")
@@ -680,7 +699,7 @@ private struct DiscoverySalonGridCard: View {
                     .foregroundStyle(.black)
                     .lineLimit(1)
 
-                Label("\(salon.location) · \(String(format: "%.1f", salon.distance))km", systemImage: "mappin.circle.fill")
+                Label("\(salon.displayDistrict) · \(String(format: "%.1f", salon.distance))km", systemImage: "mappin.circle.fill")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -772,7 +791,7 @@ private struct DiscoveryRankingsView: View {
                             rank: index + 1,
                             imageURL: salon.imageURL,
                             title: salon.name,
-                            subtitle: "\(salon.location) · \(String(format: "%.1f", salon.distance))km",
+                            subtitle: "\(salon.displayDistrict) · \(String(format: "%.1f", salon.distance))km",
                             detail: "HK$ \(salon.startPrice) 起",
                             rating: salon.rating
                         )
@@ -960,7 +979,7 @@ struct SalonRow: View {
                 Text(salon.name)
                     .font(.system(size: 24, weight: .black, design: .serif))
                     .foregroundStyle(.white)
-                Text("\(salon.location) · 約 \(String(format: "%.1f", salon.distance)) 公里")
+                Text("\(salon.displayDistrict) · 約 \(String(format: "%.1f", salon.distance)) 公里")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white.opacity(0.86))
             }
@@ -3018,6 +3037,13 @@ struct StylistProfileView: View {
     @State private var reportDraft: ReportDraft?
 
     private var stylist: Stylist { store.stylist(id: stylistID) }
+    private var stylistSalon: Salon? { store.salons.first { $0.id == stylist.salonID } }
+    private var stylistDisplayLocation: String {
+        HairmapDistricts.displayLocation(
+            district: stylist.district,
+            location: stylist.location.nilIfEmpty ?? stylistSalon?.displayLocation ?? stylistSalon?.location ?? ""
+        )
+    }
     private var selectedService: ServiceItem? {
         stylist.services.first { $0.id == selectedServiceID } ?? stylist.services.first
     }
@@ -3143,6 +3169,28 @@ struct StylistProfileView: View {
                     .foregroundStyle(HairmapUI.ink)
             }
 
+            HStack(spacing: 12) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                    .frame(width: 36, height: 36)
+                    .background(Color(red: 1.0, green: 0.95, blue: 0.76), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(stylistDisplayLocation)
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(HairmapUI.ink)
+                        .lineLimit(2)
+                    Text("服務地址")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(14)
+            .frame(width: HairmapUI.contentWidth)
+            .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(HairmapUI.line, lineWidth: 1))
+
             Button(action: callStylist) {
                 HStack(spacing: 12) {
                     Image(systemName: phone.isEmpty ? "phone.slash" : "phone")
@@ -3200,6 +3248,11 @@ struct StylistProfileView: View {
                     .font(.system(size: 33, weight: .black, design: .serif))
                     .foregroundStyle(.white)
                     .shadow(radius: 5)
+                Label(stylistDisplayLocation, systemImage: "mappin.circle.fill")
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
                 HStack(spacing: 8) {
                     ForEach(stylist.specialties.prefix(2), id: \.self) { tag in
                         Text(tag)
@@ -4216,7 +4269,7 @@ struct SalonProfileView: View {
                     .font(.system(size: 26, weight: .black))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Label("\(salon.location)（距離您大約 \(String(format: "%.1f", salon.distance)) 公里）", systemImage: "mappin.circle")
+                Label("\(salon.displayLocation)（距離您大約 \(String(format: "%.1f", salon.distance)) 公里）", systemImage: "mappin.circle")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white.opacity(0.84))
             }
@@ -4237,6 +4290,24 @@ struct SalonProfileView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(red: 0.32, green: 0.35, blue: 0.4))
                     .lineSpacing(5)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(salon.displayLocation)
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(HairmapUI.ink)
+                            .lineLimit(2)
+                        Text("沙龍地址")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 8)], spacing: 8) {
                     ForEach(["免費進口氣泡水/手沖咖啡", "專屬充電牆座與千兆 Wi-Fi", "頭皮敏感隔離修護與音樂舒壓"], id: \.self) { item in

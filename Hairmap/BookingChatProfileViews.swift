@@ -3118,30 +3118,7 @@ private struct ProfileAdminThumbnail: View {
     let urlString: String
 
     var body: some View {
-        AsyncImage(url: URL(string: urlString)) { phase in
-            switch phase {
-            case .empty:
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [HMTheme.soft, .white],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(ProgressView().tint(HMTheme.ink))
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-            case .failure:
-                Rectangle()
-                    .fill(HMTheme.soft)
-                    .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
-            @unknown default:
-                Rectangle().fill(HMTheme.soft)
-            }
-        }
+        RemoteImage(urlString: urlString, height: 56, cornerRadius: 10)
         .frame(width: 56, height: 56)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

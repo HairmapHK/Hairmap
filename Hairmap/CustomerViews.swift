@@ -2064,24 +2064,7 @@ private struct RemoteAspectFitImage: View {
     let height: CGFloat
 
     var body: some View {
-        AsyncImage(url: URL(string: urlString)) { phase in
-            switch phase {
-            case .empty:
-                Rectangle()
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(ProgressView().tint(.white))
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-            case .failure:
-                Rectangle()
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(Image(systemName: "photo").foregroundStyle(.white.opacity(0.7)))
-            @unknown default:
-                Rectangle().fill(Color.white.opacity(0.08))
-            }
-        }
+        RemoteImage(urlString: urlString, height: height, contentMode: .fit)
         .frame(width: width, height: height)
         .clipped()
     }
@@ -3648,26 +3631,8 @@ private struct LightboxRemoteImage: View {
     let urlString: String
 
     var body: some View {
-        AsyncImage(url: URL(string: urlString)) { phase in
-            switch phase {
-            case .empty:
-                ProgressView()
-                    .tint(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failure:
-                Image(systemName: "photo")
-                    .font(.system(size: 44, weight: .light))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            @unknown default:
-                EmptyView()
-            }
-        }
+        RemoteImage(urlString: urlString, contentMode: .fit)
+            .background(Color.black)
     }
 }
 

@@ -39,6 +39,8 @@ const DEFAULT_STYLIST_TAGS = ['挑染專家', '經典剪髮', '歐美挑染', '�
 const DEFAULT_SALON_TAGS = ['歐美染髮', '手刷染', '男士理髮', '日系沙龍', '韓式燙髮', '頭皮護理', 'VIP 包廂', '寵物友善'];
 const DEFAULT_FEATURES = ['提供手沖精品咖啡', '獨立包廂空間', '高速 Wi-Fi', '有機染護產品', '頭皮敏感隔離修護', '近港鐵站'];
 const DISTRICTS = ['中環', '銅鑼灣', '尖沙咀', '旺角', '荃灣', '觀塘', '元朗', '沙田', '將軍澳', '屯門'];
+const PROFILE_IMAGE_MAX_EDGE = 1400;
+const PORTFOLIO_IMAGE_MAX_EDGE = 1800;
 
 const initialServices: ServiceDraft[] = [
   { name: '招牌精修剪髮', category: '剪髮', duration: '60', price: '380', description: '包含溝通、洗髮與造型整理' },
@@ -574,9 +576,10 @@ function FilePicker({
 async function uploadFiles(kind: string, applicationID: string, files: File[]) {
   const urls: string[] = [];
   for (const file of files) {
-    const path = `public-applications/${kind}/${applicationID}/${randomID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage.from('hairmap-media').upload(path, file, {
-      contentType: file.type || 'image/jpeg',
+    const prepared = await prepareImageUpload(file, kind);
+    const path = `public-applications/${kind}/${applicationID}/${randomID()}-${safeFileName(prepared.fileName)}`;
+    const { error } = await supabase.storage.from('hairmap-media').upload(path, prepared.blob, {
+      contentType: prepared.contentType,
       upsert: false,
     });
     if (error) throw error;
@@ -584,6 +587,59 @@ async function uploadFiles(kind: string, applicationID: string, files: File[]) {
     urls.push(data.publicUrl);
   }
   return urls;
+}
+
+async function prepareImageUpload(file: File, kind: string): Promise<{ blob: Blob; fileName: string; contentType: string }> {
+  const maxEdge = kind.includes('avatar') || kind.includes('cover') ? PROFILE_IMAGE_MAX_EDGE : PORTFOLIO_IMAGE_MAX_EDGE;
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') {
+    return { blob: file, fileName: file.name, contentType: file.type || 'application/octet-stream' };
+  }
+
+  try {
+    const image = await loadImage(file);
+    const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas is not available');
+    context.drawImage(image, 0, 0, width, height);
+    const blob = await canvasToBlob(canvas, 'image/jpeg', 0.78);
+    return {
+      blob,
+      fileName: file.name.replace(/\.[^.]+$/, '') + '.jpg',
+      contentType: 'image/jpeg',
+    };
+  } catch {
+    return { blob: file, fileName: file.name, contentType: file.type || 'image/jpeg' };
+  }
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Image preview failed'));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Image compression failed'));
+    }, type, quality);
+  });
 }
 
 function buildServicePayload(stylistID: string, services: ServiceDraft[]) {

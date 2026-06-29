@@ -3,6 +3,7 @@ import Observation
 import Supabase
 import UIKit
 import UserNotifications
+import ImageIO
 
 enum SocialAuthProvider {
     case apple
@@ -899,8 +900,11 @@ final class HairmapStore {
         guard clean.hasPrefix("file://"), let fileURL = URL(string: clean) else { return clean }
         guard gateway.isConfigured, (try? await gateway.currentSession()) != nil else { return clean }
         do {
-            let originalData = try Data(contentsOf: fileURL)
-            let uploadData = UIImage(data: originalData)?.jpegData(compressionQuality: 0.88) ?? originalData
+            let maxPixelSize: CGFloat = folder.localizedCaseInsensitiveContains("avatar") ? 1200 : 1800
+            let uploadData = try await Task.detached(priority: .utility) {
+                let originalData = try Data(contentsOf: fileURL)
+                return Self.preparedUploadImageData(originalData, maxPixelSize: maxPixelSize)
+            }.value
             return try await gateway.uploadMedia(data: uploadData, folder: folder, mediaKind: .photo) ?? clean
         } catch {
             statusMessage = "圖片上載失敗，已保留本機圖片"
@@ -924,6 +928,25 @@ final class HairmapStore {
         guard !clean.isEmpty else { return false }
         guard let url = URL(string: clean), let scheme = url.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
+    }
+
+    nonisolated private static func preparedUploadImageData(_ data: Data, maxPixelSize: CGFloat) -> Data {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return UIImage(data: data)?.jpegData(compressionQuality: 0.78) ?? data
+        }
+
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ] as CFDictionary
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions) else {
+            return UIImage(data: data)?.jpegData(compressionQuality: 0.78) ?? data
+        }
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.78) ?? data
     }
 
     func refreshAdminStatus() async {

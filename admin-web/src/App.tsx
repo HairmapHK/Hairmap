@@ -106,6 +106,11 @@ type DetailMediaItem = {
   videoURL?: string;
 };
 
+type DetailMediaCounts = {
+  total: number;
+  videos: number;
+};
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -728,6 +733,7 @@ function Catalog({
                 active={item.is_active}
                 featured={item.is_featured}
                 order={item.display_order}
+                mediaCounts={catalogMediaCounts(data.works.filter((work) => work.stylist_id === item.id && work.is_active !== false))}
                 onView={() => setDetail({ kind: 'stylist', item })}
                 onToggleActive={() => setStylistVisibility(item.id, !item.is_active)}
                 onToggleFeatured={() => updateStylist(item.id, { is_featured: !item.is_featured })}
@@ -750,6 +756,7 @@ function Catalog({
                 active={item.is_active}
                 featured={item.is_featured}
                 order={item.display_order}
+                mediaCounts={catalogMediaCounts(data.salonWorks.filter((work) => work.salon_id === item.id && work.is_active !== false))}
                 onView={() => setDetail({ kind: 'salon', item })}
                 onToggleActive={() => setSalonVisibility(item.id, !item.is_active)}
                 onToggleFeatured={() => updateSalon(item.id, { is_featured: !item.is_featured })}
@@ -1524,6 +1531,16 @@ function normalizeSalonWorks(items: PortfolioWork[] | null | undefined, salonID:
   }));
 }
 
+function catalogMediaCounts(items: Array<PortfolioWork | SalonWork>): DetailMediaCounts {
+  const media = items
+    .map((item, index) => workMedia(item, index, '作品'))
+    .filter(Boolean) as DetailMediaItem[];
+  return {
+    total: media.length,
+    videos: media.filter((item) => item.mediaKind === 'video').length,
+  };
+}
+
 function Metric({ title, value, icon: Icon, onClick }: { title: string; value: number; icon: LucideIcon; onClick: () => void }) {
   return (
     <button className="metric" onClick={onClick}>
@@ -1594,6 +1611,7 @@ function CatalogCard({
   active,
   featured,
   order,
+  mediaCounts,
   onView,
   onToggleActive,
   onToggleFeatured,
@@ -1606,6 +1624,7 @@ function CatalogCard({
   active: boolean;
   featured: boolean;
   order: number;
+  mediaCounts: DetailMediaCounts;
   onView: () => void;
   onToggleActive: () => void;
   onToggleFeatured: () => void;
@@ -1622,8 +1641,11 @@ function CatalogCard({
           <span>排序 {order}</span>
           <span>{active ? '上架中' : '已下架'}</span>
           <span>{featured ? '首頁推薦' : '非推薦'}</span>
+          <span>作品 {mediaCounts.total}</span>
+          {mediaCounts.videos > 0 && <span>短片 {mediaCounts.videos}</span>}
         </div>
         <div className="action-row">
+          <button className="tiny good" onClick={onView}><Eye size={13} />查看詳情</button>
           <button className="tiny" onClick={onToggleActive}>{active ? '下架' : '上架'}</button>
           <button className="tiny" disabled={!active} onClick={onToggleFeatured}>{featured ? '取消推薦' : '推薦'}</button>
           <button className="tiny" disabled={!active} onClick={() => onMove(-10)}><ArrowUp size={13} />提前</button>
@@ -1921,15 +1943,24 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
           title: '檔案資料',
           fields: [
             { label: '狀態', value: detail.item.is_active ? '上架中' : '已下架' },
+            { label: '首頁推薦', value: detail.item.is_featured ? '是' : '否' },
+            { label: '排序', value: detail.item.display_order },
             { label: '髮型師 ID', value: detail.item.id },
+            { label: 'Owner ID', value: detail.item.owner_id },
             { label: '名稱', value: detail.item.name },
             { label: '職銜', value: detail.item.title },
             { label: '地區', value: detail.item.district },
             { label: '地址', value: detail.item.location },
             { label: '電話', value: detail.item.phone },
             { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
+            { label: '語言', value: detail.item.languages },
+            { label: '經驗', value: detail.item.experience },
+            { label: '評分', value: `${detail.item.rating} / 5 (${detail.item.reviews_count} 評論)` },
+            { label: '基本價錢', value: `HK$${detail.item.base_price}` },
             { label: '專長', value: commaList(detail.item.specialties) },
             { label: 'Bio', value: detail.item.bio },
+            { label: '建立時間', value: formatDateSafe(detail.item.created_at) },
+            { label: '更新時間', value: formatDateSafe(detail.item.updated_at) },
           ],
         },
       ];
@@ -1939,6 +1970,8 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
           title: '檔案資料',
           fields: [
             { label: '狀態', value: detail.item.is_active ? '上架中' : '已下架' },
+            { label: '首頁推薦', value: detail.item.is_featured ? '是' : '否' },
+            { label: '排序', value: detail.item.display_order },
             { label: '沙龍 ID', value: detail.item.id },
             { label: '名稱', value: detail.item.name },
             { label: '地區', value: detail.item.district },
@@ -1946,7 +1979,11 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
             { label: '電話', value: detail.item.phone },
             { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
             { label: '營業時間', value: detail.item.open_hours },
+            { label: '評分', value: `${detail.item.rating} / 5` },
+            { label: '起步價', value: `HK$${detail.item.start_price}` },
             { label: '標籤', value: commaList(detail.item.tags) },
+            { label: '建立時間', value: formatDateSafe(detail.item.created_at) },
+            { label: '更新時間', value: formatDateSafe(detail.item.updated_at) },
           ],
         },
       ];

@@ -76,12 +76,18 @@ final class SupabaseGateway {
         var salonID: String
         var title: String
         var imageURL: String
+        var mediaKind: PortfolioMediaKind
+        var videoURL: String
+        var thumbnailURL: String
 
         enum CodingKeys: String, CodingKey {
             case id
             case salonID = "salon_id"
             case title
             case imageURL = "image_url"
+            case mediaKind = "media_kind"
+            case videoURL = "video_url"
+            case thumbnailURL = "thumbnail_url"
         }
 
         init(work: PortfolioWork) {
@@ -89,10 +95,32 @@ final class SupabaseGateway {
             salonID = work.stylistID
             title = work.title
             imageURL = work.imageURL
+            mediaKind = work.mediaKind
+            videoURL = work.videoURL
+            thumbnailURL = work.thumbnailURL
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            salonID = try container.decode(String.self, forKey: .salonID)
+            title = try container.decode(String.self, forKey: .title)
+            imageURL = try container.decode(String.self, forKey: .imageURL)
+            mediaKind = try container.decodeIfPresent(PortfolioMediaKind.self, forKey: .mediaKind) ?? .photo
+            videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
+            thumbnailURL = try container.decodeIfPresent(String.self, forKey: .thumbnailURL) ?? ""
         }
 
         func asPortfolioWork() -> PortfolioWork {
-            PortfolioWork(id: id, stylistID: salonID, title: title, imageURL: imageURL)
+            PortfolioWork(
+                id: id,
+                stylistID: salonID,
+                title: title,
+                imageURL: imageURL,
+                mediaKind: mediaKind,
+                videoURL: videoURL,
+                thumbnailURL: thumbnailURL
+            )
         }
     }
 
@@ -717,15 +745,21 @@ final class SupabaseGateway {
         return result
     }
 
-    func uploadMedia(data: Data, folder: String, mediaKind: SharedLookMediaKind) async throws -> String? {
+    func uploadMedia(
+        data: Data,
+        folder: String,
+        mediaKind: SharedLookMediaKind,
+        fileExtension preferredFileExtension: String? = nil,
+        contentType preferredContentType: String? = nil
+    ) async throws -> String? {
         guard let client else { return nil }
         let session = try await client.auth.session
         let safeFolder = folder
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: "/", with: "-")
-        let fileExtension = mediaKind == .video ? "mov" : "jpg"
-        let contentType = mediaKind == .video ? "video/quicktime" : "image/jpeg"
+        let fileExtension = preferredFileExtension?.nilIfEmpty ?? (mediaKind == .video ? "mov" : "jpg")
+        let contentType = preferredContentType?.nilIfEmpty ?? (mediaKind == .video ? "video/quicktime" : "image/jpeg")
         let ownerFolder = session.user.id.uuidString.lowercased()
         let path = "uploads/\(ownerFolder)/\(safeFolder)/\(UUID().uuidString).\(fileExtension)"
 
@@ -1056,7 +1090,10 @@ final class SupabaseGateway {
                     id: work.id,
                     stylistID: salon.id,
                     title: work.title,
-                    imageURL: work.imageURL
+                    imageURL: work.imageURL,
+                    mediaKind: work.mediaKind,
+                    videoURL: work.videoURL,
+                    thumbnailURL: work.thumbnailURL
                 )
             )
         }

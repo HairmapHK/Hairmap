@@ -1,6 +1,8 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
+import UniformTypeIdentifiers
 
 struct BookingView: View {
     @Environment(HairmapStore.self) private var store
@@ -1991,7 +1993,7 @@ struct UserProfileView: View {
     @State private var extraServicePrice = ""
     @State private var customStylistWorkName = ""
     @State private var customStylistWorkURL = ""
-    @State private var uploadedStylistWorkURLs: [String] = []
+    @State private var uploadedStylistWorks: [ProfilePortfolioUpload] = []
     @State private var selectedStylistSamples: Set<String> = []
 
     @State private var salonName = ""
@@ -2006,7 +2008,7 @@ struct UserProfileView: View {
     @State private var assignedStylistIDs: Set<String> = []
     @State private var customSalonWorkName = ""
     @State private var customSalonWorkURL = ""
-    @State private var uploadedSalonWorkURLs: [String] = []
+    @State private var uploadedSalonWorks: [ProfilePortfolioUpload] = []
     @State private var selectedSalonSamples: Set<String> = []
     @State private var salonPackageName = ""
     @State private var salonPackagePrice = ""
@@ -2075,7 +2077,7 @@ struct UserProfileView: View {
                                 selectedSamples: $selectedStylistSamples,
                                 customWorkName: $customStylistWorkName,
                                 customWorkURL: $customStylistWorkURL,
-                                uploadedWorkURLs: $uploadedStylistWorkURLs,
+                                uploadedWorks: $uploadedStylistWorks,
                                 onAddExtraService: addStylistExtraService,
                                 onCreate: createStylistProfile
                             )
@@ -2095,7 +2097,7 @@ struct UserProfileView: View {
                                 selectedSamples: $selectedSalonSamples,
                                 customWorkName: $customSalonWorkName,
                                 customWorkURL: $customSalonWorkURL,
-                                uploadedWorkURLs: $uploadedSalonWorkURLs,
+                                uploadedWorks: $uploadedSalonWorks,
                                 packages: $salonPackages,
                                 packageName: $salonPackageName,
                                 packagePrice: $salonPackagePrice,
@@ -2193,15 +2195,18 @@ struct UserProfileView: View {
             PortfolioWork(id: "\(stylistID)-work-\(index)", stylistID: stylistID, title: item.title, imageURL: item.url)
         }
         let customWorkURL = customStylistWorkURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        var customWorks = uploadedStylistWorkURLs.enumerated().map { index, url in
+        var customWorks = uploadedStylistWorks.enumerated().map { index, item in
             PortfolioWork(
                 id: "\(stylistID)-uploaded-work-\(index)",
                 stylistID: stylistID,
-                title: customStylistWorkName.isEmpty ? "本機上載作品 \(index + 1)" : "\(customStylistWorkName) \(index + 1)",
-                imageURL: url
+                title: item.title.nilIfEmpty ?? (customStylistWorkName.isEmpty ? "本機上載作品 \(index + 1)" : "\(customStylistWorkName) \(index + 1)"),
+                imageURL: item.previewURL,
+                mediaKind: item.mediaKind,
+                videoURL: item.isVideo ? item.mediaURL : "",
+                thumbnailURL: item.previewURL
             )
         }
-        if !customWorkURL.isEmpty, !uploadedStylistWorkURLs.contains(customWorkURL) {
+        if !customWorkURL.isEmpty, !uploadedStylistWorks.contains(where: { $0.previewURL == customWorkURL || $0.mediaURL == customWorkURL }) {
             customWorks.append(
                 PortfolioWork(
                     id: "\(stylistID)-custom-work",
@@ -2284,16 +2289,19 @@ struct UserProfileView: View {
         var salonPortfolio = selectedWorks.enumerated().map { index, item in
             PortfolioWork(id: "\(salonID)-sample-work-\(index)", stylistID: salonID, title: item.title, imageURL: item.url)
         }
-        salonPortfolio += uploadedSalonWorkURLs.enumerated().map { index, url in
+        salonPortfolio += uploadedSalonWorks.enumerated().map { index, item in
             PortfolioWork(
                 id: "\(salonID)-uploaded-work-\(index)",
                 stylistID: salonID,
-                title: customSalonWorkName.isEmpty ? "沙龍本機上載作品 \(index + 1)" : "\(customSalonWorkName) \(index + 1)",
-                imageURL: url
+                title: item.title.nilIfEmpty ?? (customSalonWorkName.isEmpty ? "沙龍本機上載作品 \(index + 1)" : "\(customSalonWorkName) \(index + 1)"),
+                imageURL: item.previewURL,
+                mediaKind: item.mediaKind,
+                videoURL: item.isVideo ? item.mediaURL : "",
+                thumbnailURL: item.previewURL
             )
         }
         let customWorkURL = customSalonWorkURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !customWorkURL.isEmpty, !uploadedSalonWorkURLs.contains(customWorkURL) {
+        if !customWorkURL.isEmpty, !uploadedSalonWorks.contains(where: { $0.previewURL == customWorkURL || $0.mediaURL == customWorkURL }) {
             salonPortfolio.append(
                 PortfolioWork(
                     id: "\(salonID)-custom-work",
@@ -3347,7 +3355,7 @@ private struct ProfileStylistCreatePanel: View {
     @Binding var selectedSamples: Set<String>
     @Binding var customWorkName: String
     @Binding var customWorkURL: String
-    @Binding var uploadedWorkURLs: [String]
+    @Binding var uploadedWorks: [ProfilePortfolioUpload]
     let onAddExtraService: () -> Void
     let onCreate: () -> Void
 
@@ -3393,13 +3401,13 @@ private struct ProfileStylistCreatePanel: View {
 
             ProfilePortfolioEditor(
                 title: "設計師作品剪染展示集",
-                limitLabel: "上限10張",
+                limitLabel: "上限10件",
                 samples: ProfileSeed.stylistWorks,
                 selectedSamples: $selectedSamples,
                 customWorkName: $customWorkName,
                 customWorkURL: $customWorkURL,
-                uploadedWorkURLs: $uploadedWorkURLs,
-                uploadTitle: "上載本機作品照片",
+                uploadedWorks: $uploadedWorks,
+                uploadTitle: "上載本機作品相片 / 短片",
                 addTitle: "加入此項剪染作品"
             )
 
@@ -3431,7 +3439,7 @@ private struct ProfileSalonCreatePanel: View {
     @Binding var selectedSamples: Set<String>
     @Binding var customWorkName: String
     @Binding var customWorkURL: String
-    @Binding var uploadedWorkURLs: [String]
+    @Binding var uploadedWorks: [ProfilePortfolioUpload]
     @Binding var packages: [ProfileSalonPackage]
     @Binding var packageName: String
     @Binding var packagePrice: String
@@ -3471,13 +3479,13 @@ private struct ProfileSalonCreatePanel: View {
 
             ProfilePortfolioEditor(
                 title: "沙龍裝潢環境與技術實拍作品集",
-                limitLabel: "上限10張",
+                limitLabel: "上限10件",
                 samples: ProfileSeed.salonWorks,
                 selectedSamples: $selectedSamples,
                 customWorkName: $customWorkName,
                 customWorkURL: $customWorkURL,
-                uploadedWorkURLs: $uploadedWorkURLs,
-                uploadTitle: "上載本機裝修或實境照片",
+                uploadedWorks: $uploadedWorks,
+                uploadTitle: "上載本機裝修相片 / 短片",
                 addTitle: "加入此空間網址作品"
             )
 
@@ -3934,18 +3942,32 @@ private struct ProfileAvatarSelector: View {
     }
 }
 
+private struct ProfilePortfolioUpload: Identifiable {
+    let id = UUID().uuidString
+    var title: String
+    var previewURL: String
+    var mediaURL: String
+    var mediaKind: PortfolioMediaKind
+    var previewData: Data?
+
+    var isVideo: Bool { mediaKind == .video }
+}
+
 private struct ProfilePortfolioEditor: View {
+    private let videoLimit = 5
+    private let videoMaxSeconds: Double = 20.5
+    private let videoMaxBytes = 90 * 1024 * 1024
+
     let title: String
     let limitLabel: String
     let samples: [ProfileImageOption]
     @Binding var selectedSamples: Set<String>
     @Binding var customWorkName: String
     @Binding var customWorkURL: String
-    @Binding var uploadedWorkURLs: [String]
+    @Binding var uploadedWorks: [ProfilePortfolioUpload]
     let uploadTitle: String
     let addTitle: String
     @State private var pickedWorkItems: [PhotosPickerItem] = []
-    @State private var uploadedWorkDataItems: [Data] = []
     @State private var uploadStatus = ""
 
     private var selectedSampleItems: [ProfileImageOption] {
@@ -3957,11 +3979,17 @@ private struct ProfilePortfolioEditor: View {
     }
 
     private var hasDistinctCustomWorkURL: Bool {
-        !cleanCustomWorkURL.isEmpty && !uploadedWorkURLs.contains(cleanCustomWorkURL)
+        !cleanCustomWorkURL.isEmpty && !uploadedWorks.contains { upload in
+            upload.previewURL == cleanCustomWorkURL || upload.mediaURL == cleanCustomWorkURL
+        }
     }
 
     private var totalWorkCount: Int {
-        selectedSampleItems.count + uploadedWorkURLs.count + (hasDistinctCustomWorkURL ? 1 : 0)
+        selectedSampleItems.count + uploadedWorks.count + (hasDistinctCustomWorkURL ? 1 : 0)
+    }
+
+    private var selectedVideoCount: Int {
+        uploadedWorks.filter(\.isVideo).count
     }
 
     private var remainingSlots: Int {
@@ -3972,21 +4000,21 @@ private struct ProfilePortfolioEditor: View {
         ProfileBox {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Label("\(title) (\(min(totalWorkCount, 10)) / 10)", systemImage: "photo")
+                    Label("\(title) (\(min(totalWorkCount, 10)) / 10)", systemImage: "photo.on.rectangle")
                         .font(.caption.weight(.black))
                         .foregroundStyle(HMTheme.ink)
                         .lineLimit(2)
                         .minimumScaleFactor(0.74)
                     Spacer()
-                    Text(limitLabel)
+                    Text("\(limitLabel) · 短片最多5條")
                         .font(.caption2.weight(.black))
                         .padding(.horizontal, 8)
                         .frame(height: 24)
                         .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
 
-                if selectedSampleItems.isEmpty && uploadedWorkURLs.isEmpty && cleanCustomWorkURL.isEmpty {
-                    Text("尚未加入作品，請從範本或本機相簿選擇。")
+                if selectedSampleItems.isEmpty && uploadedWorks.isEmpty && cleanCustomWorkURL.isEmpty {
+                    Text("尚未加入作品，請從範本、本機相簿或短片選擇。")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4007,24 +4035,33 @@ private struct ProfilePortfolioEditor: View {
 
                 Divider()
 
-                Text("本機直接多選作品上載：")
+                Text("本機直接多選作品上載（短片20秒內）：")
                     .font(.caption2.weight(.black))
                     .foregroundStyle(HMTheme.ink)
                 VStack(alignment: .leading, spacing: 10) {
-                    if !uploadedWorkDataItems.isEmpty || !uploadedWorkURLs.isEmpty {
+                    if !uploadedWorks.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(Array(uploadedWorkURLs.enumerated()), id: \.offset) { index, url in
+                                ForEach(Array(uploadedWorks.enumerated()), id: \.element.id) { index, upload in
                                     ZStack(alignment: .topTrailing) {
                                         ProfileUploadedImage(
-                                            data: index < uploadedWorkDataItems.count ? uploadedWorkDataItems[index] : nil,
-                                            fallbackURL: url,
+                                            data: upload.previewData,
+                                            fallbackURL: upload.previewURL,
                                             height: 58,
                                             cornerRadius: 8
                                         )
                                         .frame(width: 76)
+                                        .overlay(alignment: .center) {
+                                            if upload.isVideo {
+                                                Image(systemName: "play.fill")
+                                                    .font(.system(size: 12, weight: .black))
+                                                    .foregroundStyle(.white)
+                                                    .frame(width: 28, height: 28)
+                                                    .background(.black.opacity(0.64), in: Circle())
+                                            }
+                                        }
                                         .overlay(alignment: .bottomLeading) {
-                                            Text("本機 \(index + 1)")
+                                            Text(upload.isVideo ? "短片 \(index + 1)" : "相片 \(index + 1)")
                                                 .font(.caption2.weight(.black))
                                                 .foregroundStyle(.white)
                                                 .lineLimit(1)
@@ -4052,7 +4089,7 @@ private struct ProfilePortfolioEditor: View {
                         }
                     }
 
-                    PhotosPicker(selection: $pickedWorkItems, maxSelectionCount: max(1, remainingSlots), matching: .images) {
+                    PhotosPicker(selection: $pickedWorkItems, maxSelectionCount: max(1, remainingSlots), matching: .any(of: [.images, .videos])) {
                         Label(uploadTitle, systemImage: "square.and.arrow.up")
                             .font(.caption.weight(.black))
                             .foregroundStyle(HMTheme.ink)
@@ -4086,14 +4123,14 @@ private struct ProfilePortfolioEditor: View {
 
                 HStack(spacing: 8) {
                     ProfileCompactTextField(placeholder: "作品名稱（如: 漸層挑染）", text: $customWorkName)
-                    ProfileCompactTextField(placeholder: "自訂圖片網址/連結", text: $customWorkURL)
+                    ProfileCompactTextField(placeholder: "自訂圖片網址（短片請用相簿上載）", text: $customWorkURL)
                 }
 
                 Button {
                     if customWorkName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         customWorkName = "本機上載作品"
                     }
-                    uploadStatus = customWorkURL.isEmpty && uploadedWorkURLs.isEmpty ? "請先選擇或輸入作品圖片" : "已加入作品草稿"
+                    uploadStatus = customWorkURL.isEmpty && uploadedWorks.isEmpty ? "請先選擇或輸入作品圖片" : "已加入作品草稿"
                 } label: {
                     Text(addTitle)
                         .font(.caption.weight(.black))
@@ -4118,7 +4155,7 @@ private struct ProfilePortfolioEditor: View {
             selectedSamples.insert(id)
             uploadStatus = ""
         } else {
-            uploadStatus = "作品已達 10 張上限"
+            uploadStatus = "作品已達 10 件上限"
         }
     }
 
@@ -4128,42 +4165,91 @@ private struct ProfilePortfolioEditor: View {
     }
 
     private func removeUploadedWork(at index: Int) {
-        guard uploadedWorkURLs.indices.contains(index) else { return }
-        let removedURL = uploadedWorkURLs.remove(at: index)
-        if uploadedWorkDataItems.indices.contains(index) {
-            uploadedWorkDataItems.remove(at: index)
+        guard uploadedWorks.indices.contains(index) else { return }
+        let removed = uploadedWorks.remove(at: index)
+        if cleanCustomWorkURL == removed.previewURL || cleanCustomWorkURL == removed.mediaURL {
+            customWorkURL = uploadedWorks.last?.previewURL ?? ""
         }
-        if cleanCustomWorkURL == removedURL {
-            customWorkURL = uploadedWorkURLs.last ?? ""
-        }
-        uploadStatus = uploadedWorkURLs.isEmpty ? "已移除本機作品照片" : "已選擇 \(uploadedWorkURLs.count) 張本機作品照片"
+        uploadStatus = uploadedWorks.isEmpty ? "已移除本機作品" : "已選擇 \(uploadedWorks.count) 件本機作品"
     }
 
     private func loadWorks(_ items: [PhotosPickerItem]) async {
         guard !items.isEmpty else { return }
         let capacity = remainingSlots
         guard capacity > 0 else {
-            uploadStatus = "作品已達 10 張上限"
+            uploadStatus = "作品已達 10 件上限"
             pickedWorkItems = []
             return
         }
-        var newURLs: [String] = []
-        var newDataItems: [Data] = []
+
+        var newUploads: [ProfilePortfolioUpload] = []
+        var skippedVideos = 0
         for item in items.prefix(capacity) {
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let savedURL = saveProfileUploadedImage(data, prefix: "portfolio-work") else { continue }
-            newDataItems.append(data)
-            newURLs.append(savedURL)
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            if isVideoItem(item) {
+                guard selectedVideoCount + newUploads.filter(\.isVideo).count < videoLimit else {
+                    skippedVideos += 1
+                    continue
+                }
+                guard data.count <= videoMaxBytes,
+                      let videoURLString = saveProfileUploadedFile(data, prefix: "portfolio-video", fileExtension: preferredVideoExtension(for: item)),
+                      let videoURL = URL(string: videoURLString),
+                      let duration = await portfolioVideoDuration(from: videoURL),
+                      duration <= videoMaxSeconds,
+                      let posterData = await portfolioVideoPosterData(from: videoURL),
+                      let posterURL = saveProfileUploadedImage(posterData, prefix: "portfolio-video-poster")
+                else {
+                    skippedVideos += 1
+                    continue
+                }
+                newUploads.append(
+                    ProfilePortfolioUpload(
+                        title: customWorkName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "本機短片作品",
+                        previewURL: posterURL,
+                        mediaURL: videoURLString,
+                        mediaKind: .video,
+                        previewData: posterData
+                    )
+                )
+            } else if let savedURL = saveProfileUploadedImage(data, prefix: "portfolio-work") {
+                newUploads.append(
+                    ProfilePortfolioUpload(
+                        title: customWorkName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "本機上載作品",
+                        previewURL: savedURL,
+                        mediaURL: savedURL,
+                        mediaKind: .photo,
+                        previewData: data
+                    )
+                )
+            }
         }
-        guard !newURLs.isEmpty else { return }
-        uploadedWorkURLs.append(contentsOf: newURLs)
-        uploadedWorkDataItems.append(contentsOf: newDataItems)
+
+        guard !newUploads.isEmpty else {
+            uploadStatus = skippedVideos > 0 ? "短片需為20秒內，且最多5條" : "未能加入作品"
+            pickedWorkItems = []
+            return
+        }
+
+        uploadedWorks.append(contentsOf: newUploads)
         if customWorkName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             customWorkName = "本機上載作品"
         }
-        customWorkURL = newURLs.last ?? customWorkURL
-        uploadStatus = newURLs.count < items.count ? "已加入 \(newURLs.count) 張，作品上限為 10 張" : "已選擇 \(uploadedWorkURLs.count) 張本機作品照片"
+        customWorkURL = newUploads.last?.previewURL ?? customWorkURL
+        let videoText = skippedVideos > 0 ? "，已略過 \(skippedVideos) 條不合規短片" : ""
+        uploadStatus = "已選擇 \(uploadedWorks.count) 件本機作品\(videoText)"
         pickedWorkItems = []
+    }
+
+    private func isVideoItem(_ item: PhotosPickerItem) -> Bool {
+        item.supportedContentTypes.contains { type in
+            type.conforms(to: .movie) || type.conforms(to: .video)
+        }
+    }
+
+    private func preferredVideoExtension(for item: PhotosPickerItem) -> String {
+        item.supportedContentTypes
+            .first { $0.conforms(to: .movie) || $0.conforms(to: .video) }?
+            .preferredFilenameExtension ?? "mov"
     }
 }
 
@@ -4524,16 +4610,46 @@ private struct ProfileUploadedImage: View {
 }
 
 private func saveProfileUploadedImage(_ data: Data, prefix: String) -> String? {
+    saveProfileUploadedFile(data, prefix: prefix, fileExtension: "jpg")
+}
+
+private func saveProfileUploadedFile(_ data: Data, prefix: String, fileExtension: String) -> String? {
     do {
         let baseURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("HairmapUploads", isDirectory: true)
         try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        let fileURL = baseURL.appendingPathComponent("\(prefix)-\(UUID().uuidString).jpg")
+        let safeExtension = fileExtension
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". \n\r\t"))
+            .nilIfEmpty ?? "dat"
+        let fileURL = baseURL.appendingPathComponent("\(prefix)-\(UUID().uuidString).\(safeExtension)")
         try data.write(to: fileURL, options: .atomic)
         return fileURL.absoluteString
     } catch {
         return nil
     }
+}
+
+private func portfolioVideoDuration(from url: URL) async -> Double? {
+    let asset = AVURLAsset(url: url)
+    do {
+        let duration = try await asset.load(.duration)
+        let seconds = duration.seconds
+        return seconds.isFinite ? seconds : nil
+    } catch {
+        return nil
+    }
+}
+
+private func portfolioVideoPosterData(from url: URL) async -> Data? {
+    await Task.detached(priority: .utility) {
+        let asset = AVAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1280, height: 1280)
+        let time = CMTime(seconds: 0.25, preferredTimescale: 600)
+        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.78)
+    }.value
 }
 
 private struct ProfileSelectableImage: View {

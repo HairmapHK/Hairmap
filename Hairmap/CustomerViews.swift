@@ -2918,10 +2918,13 @@ private func isDisplayablePortfolioImageURL(_ urlString: String) -> Bool {
 private func displayablePortfolioWorks(_ works: [PortfolioWork], limit: Int? = nil) -> [PortfolioWork] {
     var seen = Set<String>()
     let filtered = works.compactMap { work -> PortfolioWork? in
-        let cleanURL = work.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanURL = work.displayImageURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isDisplayablePortfolioImageURL(cleanURL), seen.insert(cleanURL).inserted else { return nil }
         var cleaned = work
         cleaned.imageURL = cleanURL
+        if cleaned.thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            cleaned.thumbnailURL = cleanURL
+        }
         return cleaned
     }
     if let limit {
@@ -2940,7 +2943,7 @@ private func expandedPortfolioWorks(
     allowDemoExpansion: Bool = false
 ) -> [PortfolioWork] {
     var works = displayablePortfolioWorks(base)
-    var seen = Set(works.map(\.imageURL))
+    var seen = Set(works.map(\.displayImageURL))
 
     guard allowDemoExpansion else {
         return Array(works.prefix(limit))
@@ -2981,7 +2984,7 @@ private func expandedSalonWorks(
 ) -> [PortfolioWork] {
     let stylistIDs = Set(team.map(\.id))
     var works = displayablePortfolioWorks(team.flatMap(\.works))
-    var seen = Set(works.map(\.imageURL))
+    var seen = Set(works.map(\.displayImageURL))
 
     for item in inspiration where stylistIDs.contains(item.stylistID) {
         let imageURL = item.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3346,7 +3349,7 @@ struct StylistProfileView: View {
                     Text("作品集展示")
                         .font(.system(size: 20, weight: .black))
                         .foregroundStyle(HairmapUI.ink)
-                    Text("最多容納 9+ 精選髮型照片，點擊即可放大橫向移動瀏覽")
+                    Text("最多容納 9+ 精選髮型相片 / 短片，點擊即可放大瀏覽")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -3554,13 +3557,23 @@ private struct PortfolioTile: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomLeading) {
-                RemoteImage(urlString: work.imageURL, height: proxy.size.height, cornerRadius: 12)
+                RemoteImage(urlString: work.displayImageURL, height: proxy.size.height, cornerRadius: 12)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
 
                 LinearGradient(colors: [.clear, .black.opacity(0.58)], startPoint: .center, endPoint: .bottom)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                if work.isVideo {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.black.opacity(0.64), in: Circle())
+                        .padding(8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
 
                 Text(work.title)
                     .font(.system(size: 12, weight: .black))
@@ -3624,7 +3637,7 @@ private struct PortfolioLightbox: View {
             TabView(selection: $selectedIndex) {
                 ForEach(Array(works.enumerated()), id: \.element.id) { index, work in
                     VStack(spacing: 16) {
-                        LightboxRemoteImage(urlString: work.imageURL)
+                        PortfolioLightboxMedia(work: work, isActive: index == selectedIndex)
                             .frame(width: HairmapUI.lightboxImageWidth, height: HairmapUI.lightboxImageHeight)
                             .background(.black, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -3676,6 +3689,32 @@ private struct LightboxRemoteImage: View {
     var body: some View {
         RemoteImage(urlString: urlString, contentMode: .fit)
             .background(Color.black)
+    }
+}
+
+private struct PortfolioLightboxMedia: View {
+    let work: PortfolioWork
+    let isActive: Bool
+
+    var body: some View {
+        ZStack {
+            if work.isVideo, isActive {
+                RemoteVideoPlayer(
+                    urlString: work.playableVideoURL,
+                    width: HairmapUI.lightboxImageWidth,
+                    height: HairmapUI.lightboxImageHeight
+                )
+            } else {
+                LightboxRemoteImage(urlString: work.displayImageURL)
+                if work.isVideo {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(width: 62, height: 62)
+                        .background(.black.opacity(0.62), in: Circle())
+                }
+            }
+        }
     }
 }
 
@@ -4396,7 +4435,7 @@ struct SalonProfileView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("沙龍最新作品展示")
                         .font(.system(size: 20, weight: .black))
-                    Text("最高支援 9+ 作品展示，點選照片可放大橫向移動瀏覽")
+                    Text("最高支援 9+ 相片 / 短片作品，點擊即可放大瀏覽")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

@@ -1387,6 +1387,9 @@ function normalizeWorks(items: PortfolioWork[] | null | undefined, stylistID: st
     stylist_id: stylistID,
     title: item.title || `作品 ${index + 1}`,
     image_url: item.image_url,
+    media_kind: item.media_kind === 'video' ? 'video' : 'photo',
+    video_url: item.media_kind === 'video' ? item.video_url ?? '' : '',
+    thumbnail_url: item.thumbnail_url || item.image_url,
     is_active: true,
     display_order: (index + 1) * 10,
   }));
@@ -1398,6 +1401,9 @@ function normalizeSalonWorks(items: PortfolioWork[] | null | undefined, salonID:
     salon_id: salonID,
     title: item.title || `沙龍作品 ${index + 1}`,
     image_url: item.image_url,
+    media_kind: item.media_kind === 'video' ? 'video' : 'photo',
+    video_url: item.media_kind === 'video' ? item.video_url ?? '' : '',
+    thumbnail_url: item.thumbnail_url || item.image_url,
     is_active: true,
     display_order: (index + 1) * 10,
   }));

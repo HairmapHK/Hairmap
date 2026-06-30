@@ -352,17 +352,71 @@ struct ServiceItem: Identifiable, Codable, Hashable {
     }
 }
 
+enum PortfolioMediaKind: String, Codable, Hashable {
+    case photo
+    case video
+}
+
 struct PortfolioWork: Identifiable, Codable, Hashable {
     var id: String
     var stylistID: String
     var title: String
     var imageURL: String
+    var mediaKind: PortfolioMediaKind = .photo
+    var videoURL: String = ""
+    var thumbnailURL: String = ""
 
     enum CodingKeys: String, CodingKey {
         case id
         case stylistID = "stylist_id"
         case title
         case imageURL = "image_url"
+        case mediaKind = "media_kind"
+        case videoURL = "video_url"
+        case thumbnailURL = "thumbnail_url"
+    }
+
+    init(
+        id: String,
+        stylistID: String,
+        title: String,
+        imageURL: String,
+        mediaKind: PortfolioMediaKind = .photo,
+        videoURL: String = "",
+        thumbnailURL: String = ""
+    ) {
+        self.id = id
+        self.stylistID = stylistID
+        self.title = title
+        self.imageURL = imageURL
+        self.mediaKind = mediaKind
+        self.videoURL = videoURL
+        self.thumbnailURL = thumbnailURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        stylistID = try container.decode(String.self, forKey: .stylistID)
+        title = try container.decode(String.self, forKey: .title)
+        imageURL = try container.decode(String.self, forKey: .imageURL)
+        mediaKind = try container.decodeIfPresent(PortfolioMediaKind.self, forKey: .mediaKind) ?? .photo
+        videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
+        thumbnailURL = try container.decodeIfPresent(String.self, forKey: .thumbnailURL) ?? ""
+    }
+
+    var displayImageURL: String {
+        let cleanThumbnail = thumbnailURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanThumbnail.isEmpty { return cleanThumbnail }
+        return imageURL
+    }
+
+    var playableVideoURL: String {
+        videoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isVideo: Bool {
+        mediaKind == .video && !playableVideoURL.isEmpty
     }
 }
 

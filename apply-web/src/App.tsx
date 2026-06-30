@@ -5,6 +5,7 @@ import {
   Building2,
   Camera,
   Check,
+  Film,
   ImagePlus,
   Instagram,
   Loader2,
@@ -28,6 +29,29 @@ type ServiceDraft = {
   duration: string;
   price: string;
   description: string;
+};
+
+type PortfolioMediaKind = 'photo' | 'video';
+
+type PreparedPortfolioMedia = {
+  file: File;
+  title: string;
+  mediaKind: PortfolioMediaKind;
+  imageURL: string;
+  videoURL: string;
+  thumbnailURL: string;
+};
+
+type PortfolioWorkPayload = {
+  id: string;
+  stylist_id: string;
+  title: string;
+  image_url: string;
+  media_kind: PortfolioMediaKind;
+  video_url: string;
+  thumbnail_url: string;
+  is_active: boolean;
+  display_order: number;
 };
 
 type SubmitState =
@@ -61,6 +85,9 @@ const DISTRICTS = [
 ];
 const PROFILE_IMAGE_MAX_EDGE = 1400;
 const PORTFOLIO_IMAGE_MAX_EDGE = 1800;
+const PORTFOLIO_VIDEO_MAX_SECONDS = 20.5;
+const PORTFOLIO_VIDEO_MAX_BYTES = 90 * 1024 * 1024;
+const PORTFOLIO_VIDEO_MAX_COUNT = 5;
 
 const initialServices: ServiceDraft[] = [
   { name: '招牌精修剪髮', category: '剪髮', duration: '60', price: '380', description: '包含溝通、洗髮與造型整理' },
@@ -149,12 +176,11 @@ function App() {
 
     const stylistID = makePublicID('stylist', stylistName);
     const applicationID = makePublicID('stylist-application', stylistName);
-    setSubmitState({ status: 'submitting', message: '正在上載頭像與作品照片...' });
+    setSubmitState({ status: 'submitting', message: '正在上載頭像、作品相片與短片...' });
 
     const avatarURL = (await uploadFiles('stylist-avatar', applicationID, stylistAvatar))[0];
-    const workURLs = await uploadFiles('stylist-works', applicationID, stylistWorks);
+    const worksPayload = await uploadPortfolioMedia('stylist-works', applicationID, stylistID, stylistWorks);
     const normalizedServices = buildServicePayload(stylistID, services);
-    const worksPayload = buildWorksPayload(stylistID, workURLs, stylistWorks);
     const normalizedApplicantEmail = applicantEmail.trim().toLowerCase();
 
     setSubmitState({ status: 'submitting', message: '正在建立髮型師 pending 申請...' });
@@ -191,7 +217,8 @@ function App() {
         `地區：${stylistDistrict}`,
         `工作室 / 服務地址：${stylistWorkplace.trim()}`,
         `Instagram：${stylistInstagramURL.trim() || '未提供'}`,
-        `作品數量：${workURLs.length}`,
+        `作品數量：${worksPayload.length}`,
+        `短片數量：${worksPayload.filter((item) => item.media_kind === 'video').length}`,
       ].join('\n'),
     });
 
@@ -209,11 +236,10 @@ function App() {
 
     const salonID = makePublicID('salon', salonName);
     const applicationID = makePublicID('salon-application', salonName);
-    setSubmitState({ status: 'submitting', message: '正在上載沙龍封面與環境照片...' });
+    setSubmitState({ status: 'submitting', message: '正在上載沙龍封面、環境相片與短片...' });
 
     const coverURL = (await uploadFiles('salon-cover', applicationID, salonCover))[0];
-    const workURLs = await uploadFiles('salon-works', applicationID, salonWorks);
-    const worksPayload = buildWorksPayload(salonID, workURLs, salonWorks);
+    const worksPayload = await uploadPortfolioMedia('salon-works', applicationID, salonID, salonWorks);
 
     setSubmitState({ status: 'submitting', message: '正在建立沙龍 pending 申請...' });
     const { error } = await supabase.from('salon_applications').insert({
@@ -245,7 +271,8 @@ function App() {
         `特色：${salonFeatures.join('、') || '未提供'}`,
         `介紹：${salonIntro}`,
         `服務：${services.map((item) => `${item.name} HK$${item.price}`).join('；')}`,
-        `作品數量：${workURLs.length}`,
+        `作品數量：${worksPayload.length}`,
+        `短片數量：${worksPayload.filter((item) => item.media_kind === 'video').length}`,
       ].join('\n'),
     });
 
@@ -358,9 +385,9 @@ function App() {
                 <CustomChipInput value={customStylistTag} onChange={setCustomStylistTag} onAdd={() => addCustomTag('stylist')} placeholder="新增專長，例如：羊毛卷" />
               </Panel>
 
-              <Panel title="頭像與作品集" icon={<Camera size={18} />} note="頭像必填；作品相片可多選，會以固定比例送到後台。">
+              <Panel title="頭像與作品集" icon={<Camera size={18} />} note="頭像必填；作品可上載相片或 20 秒內短片，短片會自動產生封面。">
                 <FilePicker title="髮型師頭像" files={stylistAvatar} onChange={setStylistAvatar} max={1} required />
-                <FilePicker title="作品集相片" files={stylistWorks} onChange={setStylistWorks} max={12} />
+                <FilePicker title="作品集相片 / 短片" files={stylistWorks} onChange={setStylistWorks} max={12} allowVideo />
               </Panel>
             </>
           ) : (
@@ -382,9 +409,9 @@ function App() {
                 <CustomChipInput value={customFeature} onChange={setCustomFeature} onAdd={() => addCustomTag('feature')} placeholder="新增特色，例如：近地鐵出口" />
               </Panel>
 
-              <Panel title="封面與環境作品" icon={<ImagePlus size={18} />} note="封面必填；環境 / 作品相片可多選，會以固定比例送到後台。">
+              <Panel title="封面與環境作品" icon={<ImagePlus size={18} />} note="封面必填；環境 / 作品可上載相片或 20 秒內短片。">
                 <FilePicker title="沙龍封面" files={salonCover} onChange={setSalonCover} max={1} required />
-                <FilePicker title="沙龍環境 / 技術作品" files={salonWorks} onChange={setSalonWorks} max={12} />
+                <FilePicker title="沙龍環境 / 技術作品" files={salonWorks} onChange={setSalonWorks} max={12} allowVideo />
               </Panel>
             </>
           )}
@@ -560,18 +587,29 @@ function FilePicker({
   onChange,
   max,
   required,
+  allowVideo = false,
 }: {
   title: string;
   files: File[];
   onChange: (files: File[]) => void;
   max: number;
   required?: boolean;
+  allowVideo?: boolean;
 }) {
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
-    onChange([...files, ...selected].slice(0, max));
+    const selected = Array.from(event.target.files ?? []).filter((file) => isAllowedPickedFile(file, allowVideo));
+    const merged = [...files, ...selected].slice(0, max);
+    const videos = merged.filter((file) => file.type.startsWith('video/'));
+    if (videos.length > PORTFOLIO_VIDEO_MAX_COUNT) {
+      const videoSlots = new Set(videos.slice(0, PORTFOLIO_VIDEO_MAX_COUNT));
+      onChange(merged.filter((file) => !file.type.startsWith('video/') || videoSlots.has(file)));
+    } else {
+      onChange(merged);
+    }
     event.target.value = '';
   }
+
+  const accept = allowVideo ? 'image/*,video/mp4,video/quicktime,video/*' : 'image/*';
 
   return (
     <div className="file-picker">
@@ -581,15 +619,22 @@ function FilePicker({
       </div>
       <label className="dropzone">
         <UploadCloud size={26} />
-        <span>點擊上載相片，可一次多選</span>
-        <input type="file" accept="image/*" multiple={max > 1} onChange={handleFiles} />
+        <span>{allowVideo ? '點擊上載相片或短片，可一次多選' : '點擊上載相片，可一次多選'}</span>
+        <input type="file" accept={accept} multiple={max > 1} onChange={handleFiles} />
       </label>
       {files.length > 0 && (
         <div className="preview-grid">
           {files.map((file, index) => (
             <figure key={`${file.name}-${file.lastModified}-${index}`}>
-              <img src={URL.createObjectURL(file)} alt={file.name} />
+              {file.type.startsWith('video/') ? (
+                <video src={URL.createObjectURL(file)} muted playsInline preload="metadata" />
+              ) : (
+                <img src={URL.createObjectURL(file)} alt={file.name} />
+              )}
               <figcaption>{file.name}</figcaption>
+              {file.type.startsWith('video/') && (
+                <span className="media-kind"><Film size={12} />短片</span>
+              )}
               <button type="button" onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))} aria-label="移除相片">
                 <Trash2 size={14} />
               </button>
@@ -615,6 +660,74 @@ async function uploadFiles(kind: string, applicationID: string, files: File[]) {
     urls.push(data.publicUrl);
   }
   return urls;
+}
+
+async function uploadPortfolioMedia(kind: string, applicationID: string, ownerID: string, files: File[]): Promise<PortfolioWorkPayload[]> {
+  const preparedItems: PreparedPortfolioMedia[] = [];
+  const videoCount = files.filter((file) => file.type.startsWith('video/')).length;
+  if (videoCount > PORTFOLIO_VIDEO_MAX_COUNT) {
+    throw new Error(`短片最多 ${PORTFOLIO_VIDEO_MAX_COUNT} 條。`);
+  }
+
+  for (const file of files) {
+    const mediaKind: PortfolioMediaKind = file.type.startsWith('video/') ? 'video' : 'photo';
+    if (mediaKind === 'video') {
+      const video = await prepareVideoUpload(file);
+      const videoPath = `public-applications/${kind}/${applicationID}/videos/${randomID()}-${safeFileName(file.name)}`;
+      const { error: videoError } = await supabase.storage.from('hairmap-media').upload(videoPath, video.file, {
+        contentType: video.contentType,
+        upsert: false,
+      });
+      if (videoError) throw videoError;
+      const { data: videoData } = supabase.storage.from('hairmap-media').getPublicUrl(videoPath);
+
+      const posterPath = `public-applications/${kind}/${applicationID}/posters/${randomID()}-${safeFileName(file.name.replace(/\.[^.]+$/, '') || 'video')}.jpg`;
+      const { error: posterError } = await supabase.storage.from('hairmap-media').upload(posterPath, video.posterBlob, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
+      if (posterError) throw posterError;
+      const { data: posterData } = supabase.storage.from('hairmap-media').getPublicUrl(posterPath);
+
+      preparedItems.push({
+        file,
+        title: fileTitle(file.name, `短片 ${preparedItems.length + 1}`),
+        mediaKind,
+        imageURL: posterData.publicUrl,
+        videoURL: videoData.publicUrl,
+        thumbnailURL: posterData.publicUrl,
+      });
+    } else {
+      const prepared = await prepareImageUpload(file, kind);
+      const path = `public-applications/${kind}/${applicationID}/${randomID()}-${safeFileName(prepared.fileName)}`;
+      const { error } = await supabase.storage.from('hairmap-media').upload(path, prepared.blob, {
+        contentType: prepared.contentType,
+        upsert: false,
+      });
+      if (error) throw error;
+      const { data } = supabase.storage.from('hairmap-media').getPublicUrl(path);
+      preparedItems.push({
+        file,
+        title: fileTitle(file.name, `作品 ${preparedItems.length + 1}`),
+        mediaKind,
+        imageURL: data.publicUrl,
+        videoURL: '',
+        thumbnailURL: data.publicUrl,
+      });
+    }
+  }
+
+  return preparedItems.map((item, index) => ({
+    id: `${ownerID}-work-${index + 1}`,
+    stylist_id: ownerID,
+    title: item.title,
+    image_url: item.imageURL,
+    media_kind: item.mediaKind,
+    video_url: item.videoURL,
+    thumbnail_url: item.thumbnailURL,
+    is_active: true,
+    display_order: (index + 1) * 10,
+  }));
 }
 
 async function prepareImageUpload(file: File, kind: string): Promise<{ blob: Blob; fileName: string; contentType: string }> {
@@ -661,6 +774,75 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
+async function prepareVideoUpload(file: File): Promise<{ file: File; contentType: string; posterBlob: Blob }> {
+  if (!file.type.startsWith('video/')) throw new Error('請選擇影片檔案。');
+  if (file.size > PORTFOLIO_VIDEO_MAX_BYTES) throw new Error('短片檔案過大，請先壓縮後再上載。');
+  const duration = await getVideoDuration(file);
+  if (duration > PORTFOLIO_VIDEO_MAX_SECONDS) throw new Error('短片需控制在 20 秒內。');
+  const posterBlob = await captureVideoPoster(file);
+  return {
+    file,
+    contentType: file.type || 'video/mp4',
+    posterBlob,
+  };
+}
+
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      URL.revokeObjectURL(url);
+      Number.isFinite(duration) ? resolve(duration) : reject(new Error('未能讀取短片長度。'));
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('未能讀取短片。'));
+    };
+    video.src = url;
+  });
+}
+
+function captureVideoPoster(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    const cleanup = () => URL.revokeObjectURL(url);
+
+    video.onloadedmetadata = () => {
+      video.currentTime = Math.min(0.25, Math.max(0, video.duration / 2));
+    };
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      const maxEdge = 1280;
+      const scale = Math.min(1, maxEdge / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+      canvas.width = Math.max(1, Math.round((video.videoWidth || 1) * scale));
+      canvas.height = Math.max(1, Math.round((video.videoHeight || 1) * scale));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        cleanup();
+        reject(new Error('未能建立短片封面。'));
+        return;
+      }
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        cleanup();
+        blob ? resolve(blob) : reject(new Error('未能建立短片封面。'));
+      }, 'image/jpeg', 0.78);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error('未能讀取短片封面。'));
+    };
+    video.src = url;
+  });
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -684,15 +866,8 @@ function buildServicePayload(stylistID: string, services: ServiceDraft[]) {
     }));
 }
 
-function buildWorksPayload(ownerID: string, urls: string[], files: File[]) {
-  return urls.map((url, index) => ({
-    id: `${ownerID}-work-${index + 1}`,
-    stylist_id: ownerID,
-    title: fileTitle(files[index]?.name, `作品 ${index + 1}`),
-    image_url: url,
-    is_active: true,
-    display_order: (index + 1) * 10,
-  }));
+function isAllowedPickedFile(file: File, allowVideo: boolean) {
+  return file.type.startsWith('image/') || (allowVideo && file.type.startsWith('video/'));
 }
 
 function validateCommon(name: string, email: string, phone: string) {

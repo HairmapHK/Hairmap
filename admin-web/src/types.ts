@@ -33,6 +33,9 @@ export type PortfolioWork = {
   stylist_id: string;
   title: string;
   image_url: string;
+  media_kind?: 'photo' | 'video';
+  video_url?: string;
+  thumbnail_url?: string;
   is_active?: boolean;
   display_order?: number;
 };
@@ -42,6 +45,9 @@ export type SalonWork = {
   salon_id: string;
   title: string;
   image_url: string;
+  media_kind?: 'photo' | 'video';
+  video_url?: string;
+  thumbnail_url?: string;
   is_active: boolean;
   display_order: number;
 };

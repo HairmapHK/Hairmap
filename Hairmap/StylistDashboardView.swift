@@ -1,6 +1,8 @@
 import PhotosUI
 import SwiftUI
 import UIKit
+import AVFoundation
+import UniformTypeIdentifiers
 
 struct StylistDashboardView: View {
     @Environment(HairmapStore.self) private var store
@@ -194,30 +196,60 @@ struct StylistDashboardView: View {
 
         let title = customWorkTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         var newWorks: [PortfolioWork] = []
+        var skippedVideos = 0
 
         for (index, item) in items.prefix(availableSlots).enumerated() {
-            guard
-                let data = try? await item.loadTransferable(type: Data.self),
-                let savedURL = saveDashboardUploadedImage(data, prefix: "dashboard-work")
-            else { continue }
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
 
             let defaultTitle = items.count == 1 ? "自訂上載作品" : "自訂上載作品 \(index + 1)"
             let workTitle = title.isEmpty
                 ? defaultTitle
                 : (items.count == 1 ? title : "\(title) \(index + 1)")
-            newWorks.append(
-                PortfolioWork(
-                    id: "dash_work_\(UUID().uuidString)",
-                    stylistID: stylistID,
-                    title: workTitle,
-                    imageURL: savedURL
+
+            if dashboardPickerItemIsVideo(item) {
+                let currentVideoCount = profileWorks.filter(\.isVideo).count + newWorks.filter(\.isVideo).count
+                guard currentVideoCount < 5,
+                      data.count <= 90 * 1024 * 1024,
+                      let videoURLString = saveDashboardUploadedFile(data, prefix: "dashboard-work-video", fileExtension: dashboardPreferredVideoExtension(for: item)),
+                      let videoURL = URL(string: videoURLString),
+                      let duration = await dashboardVideoDuration(from: videoURL),
+                      duration <= 20.5,
+                      let posterData = await dashboardVideoPosterData(from: videoURL),
+                      let posterURL = saveDashboardUploadedImage(posterData, prefix: "dashboard-work-video-poster")
+                else {
+                    skippedVideos += 1
+                    continue
+                }
+                newWorks.append(
+                    PortfolioWork(
+                        id: "dash_video_work_\(UUID().uuidString)",
+                        stylistID: stylistID,
+                        title: workTitle,
+                        imageURL: posterURL,
+                        mediaKind: .video,
+                        videoURL: videoURLString,
+                        thumbnailURL: posterURL
+                    )
                 )
-            )
+            } else if let savedURL = saveDashboardUploadedImage(data, prefix: "dashboard-work") {
+                newWorks.append(
+                    PortfolioWork(
+                        id: "dash_work_\(UUID().uuidString)",
+                        stylistID: stylistID,
+                        title: workTitle,
+                        imageURL: savedURL,
+                        thumbnailURL: savedURL
+                    )
+                )
+            }
         }
 
         if !newWorks.isEmpty {
             profileWorks.insert(contentsOf: newWorks, at: 0)
             customWorkTitle = ""
+        }
+        if skippedVideos > 0 {
+            profileSubmissionNotice = "短片需為20秒內，且最多5條"
         }
         pickedWorkItems = []
     }
@@ -2377,7 +2409,7 @@ private struct DashboardPortfolioEditor: View {
                     .font(.system(size: 14, weight: .black))
                     .foregroundStyle(Color(red: 0.68, green: 0.49, blue: 0.07))
                 Spacer()
-                Text("上限10張")
+                Text("上限10件 · 短片5條")
                     .font(.system(size: 10, weight: .black))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -2388,7 +2420,16 @@ private struct DashboardPortfolioEditor: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                     ForEach(works.prefix(10)) { work in
                         ZStack(alignment: .topTrailing) {
-                            DashboardUploadedImage(data: nil, urlString: work.imageURL, height: 74, cornerRadius: 8)
+                            DashboardUploadedImage(data: nil, urlString: work.displayImageURL, height: 74, cornerRadius: 8)
+                                .overlay(alignment: .center) {
+                                    if work.isVideo {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 12, weight: .black))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 30, height: 30)
+                                            .background(.black.opacity(0.64), in: Circle())
+                                    }
+                                }
                             Button {
                                 works.removeAll { $0.id == work.id }
                             } label: {
@@ -2404,8 +2445,8 @@ private struct DashboardPortfolioEditor: View {
                 }
             }
 
-            PhotosPicker(selection: $pickedWorkItems, maxSelectionCount: max(1, remainingSlots), matching: .images) {
-                Label(remainingSlots == 0 ? "已達作品上限" : "自手機相簿選擇多張作品", systemImage: "square.and.arrow.up")
+            PhotosPicker(selection: $pickedWorkItems, maxSelectionCount: max(1, remainingSlots), matching: .any(of: [.images, .videos])) {
+                Label(remainingSlots == 0 ? "已達作品上限" : "自手機相簿選擇相片 / 短片", systemImage: "square.and.arrow.up")
                     .font(.system(size: 13, weight: .black))
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
@@ -2417,7 +2458,7 @@ private struct DashboardPortfolioEditor: View {
             .disabled(remainingSlots == 0)
             .opacity(remainingSlots == 0 ? 0.45 : 1)
 
-            Text("可一次選擇多張相片；提交時只會使用您上載或手動加入的作品，不會自動加入示範作品。")
+            Text("可一次選擇多張相片或20秒內短片；提交時只會使用您上載或手動加入的作品。")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
 
@@ -2457,7 +2498,8 @@ private struct DashboardPortfolioEditor: View {
                 id: "dash_url_work_\(Int(Date().timeIntervalSince1970 * 1000))",
                 stylistID: stylistID,
                 title: title.isEmpty ? "自訂作品" : title,
-                imageURL: url
+                imageURL: url,
+                thumbnailURL: url
             )
         )
         customWorkTitle = ""
@@ -2535,12 +2577,54 @@ private extension View {
 }
 
 private func saveDashboardUploadedImage(_ data: Data, prefix: String) -> String? {
+    saveDashboardUploadedFile(data, prefix: prefix, fileExtension: "jpg")
+}
+
+private func saveDashboardUploadedFile(_ data: Data, prefix: String, fileExtension: String) -> String? {
     guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
-    let url = documents.appendingPathComponent("\(prefix)-\(UUID().uuidString).jpg")
+    let baseURL = documents.appendingPathComponent("HairmapUploads", isDirectory: true)
+    let safeExtension = fileExtension.trimmingCharacters(in: CharacterSet(charactersIn: ". \n\r\t")).nilIfEmpty ?? "dat"
+    let url = baseURL.appendingPathComponent("\(prefix)-\(UUID().uuidString).\(safeExtension)")
     do {
+        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         try data.write(to: url, options: [.atomic])
         return url.absoluteString
     } catch {
         return nil
     }
+}
+
+private func dashboardPickerItemIsVideo(_ item: PhotosPickerItem) -> Bool {
+    item.supportedContentTypes.contains { type in
+        type.conforms(to: .movie) || type.conforms(to: .video)
+    }
+}
+
+private func dashboardPreferredVideoExtension(for item: PhotosPickerItem) -> String {
+    item.supportedContentTypes
+        .first { $0.conforms(to: .movie) || $0.conforms(to: .video) }?
+        .preferredFilenameExtension ?? "mov"
+}
+
+private func dashboardVideoDuration(from url: URL) async -> Double? {
+    let asset = AVURLAsset(url: url)
+    do {
+        let duration = try await asset.load(.duration)
+        let seconds = duration.seconds
+        return seconds.isFinite ? seconds : nil
+    } catch {
+        return nil
+    }
+}
+
+private func dashboardVideoPosterData(from url: URL) async -> Data? {
+    await Task.detached(priority: .utility) {
+        let asset = AVAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1280, height: 1280)
+        let time = CMTime(seconds: 0.25, preferredTimescale: 600)
+        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.78)
+    }.value
 }

@@ -912,12 +912,49 @@ final class HairmapStore {
         }
     }
 
+    func uploadProfileVideoIfNeeded(_ urlString: String, folder: String) async -> String {
+        let clean = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.hasPrefix("file://"), let fileURL = URL(string: clean) else { return clean }
+        guard gateway.isConfigured, (try? await gateway.currentSession()) != nil else { return clean }
+        do {
+            let uploadData = try await Task.detached(priority: .utility) {
+                try Data(contentsOf: fileURL)
+            }.value
+            let fileExtension = fileURL.pathExtension.nilIfEmpty ?? "mov"
+            return try await gateway.uploadMedia(
+                data: uploadData,
+                folder: folder,
+                mediaKind: .video,
+                fileExtension: fileExtension,
+                contentType: Self.videoContentType(for: fileExtension)
+            ) ?? clean
+        } catch {
+            statusMessage = "短片上載失敗，已略過該作品"
+            return clean
+        }
+    }
+
     func uploadPortfolioWorksIfNeeded(_ works: [PortfolioWork], folder: String) async -> [PortfolioWork] {
         var uploaded: [PortfolioWork] = []
         for work in works {
             var mutable = work
-            mutable.imageURL = await uploadProfileMediaIfNeeded(work.imageURL, folder: folder)
-            guard isPersistableRemoteMediaURL(mutable.imageURL) else { continue }
+            if work.mediaKind == .video {
+                let posterSource = work.displayImageURL
+                let posterURL = await uploadProfileMediaIfNeeded(posterSource, folder: "\(folder)-posters")
+                let videoURL = await uploadProfileVideoIfNeeded(work.playableVideoURL, folder: "\(folder)-videos")
+                mutable.imageURL = posterURL
+                mutable.thumbnailURL = posterURL
+                mutable.videoURL = videoURL
+                guard
+                    isPersistableRemoteMediaURL(mutable.imageURL),
+                    isPersistableRemoteMediaURL(mutable.videoURL)
+                else { continue }
+            } else {
+                mutable.imageURL = await uploadProfileMediaIfNeeded(work.imageURL, folder: folder)
+                mutable.thumbnailURL = mutable.thumbnailURL.nilIfEmpty ?? mutable.imageURL
+                mutable.videoURL = ""
+                guard isPersistableRemoteMediaURL(mutable.imageURL) else { continue }
+            }
             uploaded.append(mutable)
         }
         return uploaded
@@ -928,6 +965,17 @@ final class HairmapStore {
         guard !clean.isEmpty else { return false }
         guard let url = URL(string: clean), let scheme = url.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
+    }
+
+    nonisolated private static func videoContentType(for fileExtension: String) -> String {
+        switch fileExtension.lowercased() {
+        case "mp4", "m4v":
+            return "video/mp4"
+        case "mov", "qt":
+            return "video/quicktime"
+        default:
+            return "video/quicktime"
+        }
     }
 
     nonisolated private static func preparedUploadImageData(_ data: Data, maxPixelSize: CGFloat) -> Data {

@@ -180,6 +180,40 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertFalse(publicSalon.isFeatured)
     }
 
+    func testPortfolioWorkDecodingSupportsPhotoDefaultsAndVideoMetadata() throws {
+        let legacyJSON = """
+        {
+          "id": "work-photo",
+          "stylist_id": "stylist-new",
+          "title": "日系剪裁",
+          "image_url": "https://example.com/photo.jpg"
+        }
+        """.data(using: .utf8)!
+        let legacyWork = try JSONDecoder().decode(PortfolioWork.self, from: legacyJSON)
+
+        XCTAssertEqual(legacyWork.mediaKind, .photo)
+        XCTAssertEqual(legacyWork.displayImageURL, "https://example.com/photo.jpg")
+        XCTAssertFalse(legacyWork.isVideo)
+
+        let videoJSON = """
+        {
+          "id": "work-video",
+          "stylist_id": "stylist-new",
+          "title": "漂染完成短片",
+          "image_url": "https://example.com/poster.jpg",
+          "media_kind": "video",
+          "video_url": "https://example.com/video.mp4",
+          "thumbnail_url": "https://example.com/thumb.jpg"
+        }
+        """.data(using: .utf8)!
+        let videoWork = try JSONDecoder().decode(PortfolioWork.self, from: videoJSON)
+
+        XCTAssertEqual(videoWork.mediaKind, .video)
+        XCTAssertEqual(videoWork.displayImageURL, "https://example.com/thumb.jpg")
+        XCTAssertEqual(videoWork.playableVideoURL, "https://example.com/video.mp4")
+        XCTAssertTrue(videoWork.isVideo)
+    }
+
     func testInstagramLinksNormalizeForAppAndWebOpen() {
         XCTAssertEqual(
             HairmapExternalLinks.normalizedInstagramWebURL(from: "@hairmaphk")?.absoluteString,

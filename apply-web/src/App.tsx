@@ -39,7 +39,26 @@ type SubmitState =
 const DEFAULT_STYLIST_TAGS = ['挑染專家', '經典剪髮', '歐美挑染', '漸層推剪', '韓式燙髮', '縮毛矯正', '女神大波浪', '深層護理'];
 const DEFAULT_SALON_TAGS = ['歐美染髮', '手刷染', '男士理髮', '日系沙龍', '韓式燙髮', '頭皮護理', 'VIP 包廂', '寵物友善'];
 const DEFAULT_FEATURES = ['提供手沖精品咖啡', '獨立包廂空間', '高速 Wi-Fi', '有機染護產品', '頭皮敏感隔離修護', '近港鐵站'];
-const DISTRICTS = ['中環', '銅鑼灣', '尖沙咀', '旺角', '荃灣', '觀塘', '元朗', '沙田', '將軍澳', '屯門'];
+const DISTRICTS = [
+  '中西區',
+  '灣仔區',
+  '東區',
+  '南區',
+  '油尖旺區',
+  '深水埗區',
+  '九龍城區',
+  '黃大仙區',
+  '觀塘區',
+  '葵青區',
+  '荃灣區',
+  '屯門區',
+  '元朗區',
+  '北區',
+  '大埔區',
+  '沙田區',
+  '西貢區',
+  '離島區',
+];
 const PROFILE_IMAGE_MAX_EDGE = 1400;
 const PORTFOLIO_IMAGE_MAX_EDGE = 1800;
 
@@ -61,7 +80,7 @@ function App() {
   const [stylistPhone, setStylistPhone] = useState('');
   const [stylistExperience, setStylistExperience] = useState('5年資歷');
   const [stylistLanguages, setStylistLanguages] = useState('中 / 粵 / 英');
-  const [stylistDistrict, setStylistDistrict] = useState('尖沙咀');
+  const [stylistDistrict, setStylistDistrict] = useState('油尖旺區');
   const [stylistWorkplace, setStylistWorkplace] = useState('');
   const [stylistInstagramURL, setStylistInstagramURL] = useState('');
   const [stylistBio, setStylistBio] = useState('');
@@ -72,7 +91,7 @@ function App() {
 
   const [salonName, setSalonName] = useState('');
   const [salonLocation, setSalonLocation] = useState('');
-  const [salonDistrict, setSalonDistrict] = useState('尖沙咀');
+  const [salonDistrict, setSalonDistrict] = useState('油尖旺區');
   const [salonInstagramURL, setSalonInstagramURL] = useState('');
   const [salonPhone, setSalonPhone] = useState('');
   const [salonHours, setSalonHours] = useState('11:00 - 20:00');

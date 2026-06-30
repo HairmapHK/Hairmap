@@ -3363,7 +3363,7 @@ private struct ProfileStylistCreatePanel: View {
             ProfileField(title: "髮型師聯絡電話", required: true, placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
             ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
             ProfileField(title: "服務地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
-            ProfileField(title: "Instagram 連結 / @帳號", placeholder: "@hairmaphk 或 https://instagram.com/hairmaphk", text: $instagramURL, keyboard: .URL)
+            ProfileInstagramField(placeholder: "@hairmaphk 或 https://instagram.com/hairmaphk", text: $instagramURL)
             ProfileTextArea(title: "個人簡介", placeholder: "例如: 擁有10年以上沙龍經驗，擅長歐美漸層手刷染、Balayage，針對個人頭骨與臉型設計專屬層次剪裁。", text: $bio)
 
             HStack(spacing: 10) {
@@ -3450,7 +3450,7 @@ private struct ProfileSalonCreatePanel: View {
             ProfileField(title: "沙龍名稱", required: true, placeholder: "例如: Artisan Space, Noir Prestige Salon", text: $name)
             ProfileMenuField(title: "主要地區", value: $district, options: HairmapDistricts.all)
             ProfileField(title: "沙龍地址", required: true, placeholder: "例如: 尖沙咀海港城3樓3045號舖", text: $address)
-            ProfileField(title: "Instagram 連結 / @帳號", placeholder: "@salonhk 或 https://instagram.com/salonhk", text: $instagramURL, keyboard: .URL)
+            ProfileInstagramField(placeholder: "@salonhk 或 https://instagram.com/salonhk", text: $instagramURL)
 
             HStack(spacing: 10) {
                 ProfileField(title: "聯絡電話", placeholder: "+852 2345 6789", text: $phone, keyboard: .phonePad)
@@ -3547,6 +3547,37 @@ private struct ProfileField: View {
                 .frame(height: 48)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.black, lineWidth: 1))
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ProfileInstagramField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Instagram 連結 / @帳號")
+                .font(.caption.weight(.black))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                HairmapInstagramGlyph(color: .secondary.opacity(0.75))
+                TextField(placeholder, text: $text)
+                    .font(.callout.weight(.semibold))
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(HMTheme.amber, lineWidth: 2)
+            )
+            .shadow(color: HMTheme.amber.opacity(0.12), radius: 10, y: 4)
         }
         .frame(maxWidth: .infinity)
     }

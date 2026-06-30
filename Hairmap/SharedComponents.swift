@@ -11,6 +11,27 @@ enum HMTheme {
     static let amber = Color(red: 0.92, green: 0.67, blue: 0.23)
 }
 
+struct HairmapInstagramGlyph: View {
+    var color: Color = .secondary
+    var lineWidth: CGFloat = 1.8
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(color, lineWidth: lineWidth)
+            Circle()
+                .stroke(color, lineWidth: lineWidth)
+                .frame(width: 8, height: 8)
+            Circle()
+                .fill(color)
+                .frame(width: 3.2, height: 3.2)
+                .offset(x: 5, y: -5)
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
+}
+
 enum RemoteImageContentMode: Equatable {
     case fill
     case fit

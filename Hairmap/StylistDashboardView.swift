@@ -1841,7 +1841,7 @@ private struct StylistProfileWorkspace: View {
                         pickedWorkItems: $pickedWorkItems
                     )
 
-                    DashboardInputField(label: "Instagram 連結 / @帳號", placeholder: "@hairmaphk 或 https://instagram.com/hairmaphk", text: $instagramURL)
+                    DashboardInstagramField(text: $instagramURL)
 
                     Button(action: onSubmitForReview) {
                         Text(hasApprovedProfile ? "提交個人檔案更新審批" : "提交髮型師檔案審批")
@@ -1987,6 +1987,35 @@ private struct DashboardInputField: View {
                 .frame(height: 48)
                 .background(.white, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.black, lineWidth: 1))
+        }
+    }
+}
+
+private struct DashboardInstagramField: View {
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Instagram 連結 / @帳號")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                HairmapInstagramGlyph(color: .secondary.opacity(0.75))
+                TextField("@hairmaphk 或 https://instagram.com/hairmaphk", text: $text)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(DashboardPalette.gold, lineWidth: 2)
+            )
+            .shadow(color: DashboardPalette.gold.opacity(0.12), radius: 10, y: 4)
         }
     }
 }

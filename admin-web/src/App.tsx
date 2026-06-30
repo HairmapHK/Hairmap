@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  ExternalLink,
+  Film,
   Flag,
   Home,
   Image,
@@ -85,6 +87,23 @@ type RankingItemType = RankingOverride['item_type'];
 type Toast = {
   type: 'success' | 'error' | 'info';
   message: string;
+};
+
+type DetailField = {
+  label: string;
+  value: ReactNode;
+};
+
+type DetailSection = {
+  title: string;
+  fields: DetailField[];
+};
+
+type DetailMediaItem = {
+  title: string;
+  imageURL: string;
+  mediaKind: 'photo' | 'video';
+  videoURL?: string;
 };
 
 export default function App() {
@@ -236,8 +255,7 @@ export default function App() {
   }
 
   function showError(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    setToast({ type: 'error', message });
+    setToast({ type: 'error', message: describeError(error) });
   }
 
   const counts = useMemo(() => {
@@ -377,7 +395,19 @@ export default function App() {
       </main>
 
       {toast && <ToastView toast={toast} onClose={() => setToast(null)} />}
-      {detail && <DetailDrawer detail={detail} data={data} onClose={() => setDetail(null)} />}
+      {detail && (
+        <DetailDrawer
+          detail={detail}
+          data={data}
+          onClose={() => setDetail(null)}
+          approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id))}
+          rejectStylist={(app) => runAction('拒絕髮型師申請', () => updateStylistApplicationStatus(app, 'rejected', session.user.id))}
+          hideStylist={(app) => runAction('下架髮型師檔案', () => hideStylistApplication(app, session.user.id))}
+          approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id))}
+          rejectSalon={(app) => runAction('拒絕沙龍申請', () => updateSalonApplicationStatus(app, 'rejected', session.user.id))}
+          hideSalon={(app) => runAction('下架沙龍檔案', () => hideSalonApplication(app, session.user.id))}
+        />
+      )}
     </ShellFrame>
   );
 }
@@ -975,15 +1005,33 @@ function Placement({
   );
 }
 
-function DetailDrawer({ detail, data, onClose }: { detail: DetailTarget; data: AdminData; onClose: () => void }) {
+function DetailDrawer({
+  detail,
+  data,
+  onClose,
+  approveStylist,
+  rejectStylist,
+  hideStylist,
+  approveSalon,
+  rejectSalon,
+  hideSalon,
+}: {
+  detail: DetailTarget;
+  data: AdminData;
+  onClose: () => void;
+  approveStylist: (item: StylistApplication) => void;
+  rejectStylist: (item: StylistApplication) => void;
+  hideStylist: (item: StylistApplication) => void;
+  approveSalon: (item: SalonApplication) => void;
+  rejectSalon: (item: SalonApplication) => void;
+  hideSalon: (item: SalonApplication) => void;
+}) {
   const title = detailTitle(detail);
   const media = detailMedia(detail, data);
-  const services = detail.kind === 'stylistApplication'
-    ? detail.item.services_payload
-    : detail.kind === 'stylist'
-      ? data.services.filter((item) => item.stylist_id === detail.item.id)
-      : [];
+  const sections = detailInfoSections(detail);
+  const services = detailServices(detail, data);
   const comments = detail.kind === 'inspiration' ? data.comments.filter((item) => item.inspiration_id === detail.item.id) : [];
+  const hasApprovalActions = detail.kind === 'stylistApplication' || detail.kind === 'salonApplication';
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -998,16 +1046,70 @@ function DetailDrawer({ detail, data, onClose }: { detail: DetailTarget; data: A
           </button>
         </div>
 
-        {!!media.length && (
-          <div className="media-grid">
-            {media.map((item, index) => (
-              <figure key={`${item.url}-${index}`}>
-                <img src={item.url} alt={item.title} onError={(event) => { event.currentTarget.src = fallbackImage(); }} />
-                <figcaption>{item.title}</figcaption>
-              </figure>
-            ))}
+        {hasApprovalActions && (
+          <div className="drawer-actions">
+            {detail.kind === 'stylistApplication' && detail.item.status === 'pending' && (
+              <>
+                <ActionButton icon={Check} label="批准髮型師" tone="good" onClick={() => approveStylist(detail.item)} />
+                <ActionButton icon={X} label="拒絕申請" tone="danger" onClick={() => rejectStylist(detail.item)} />
+              </>
+            )}
+            {detail.kind === 'stylistApplication' && detail.item.status === 'approved' && (
+              <ActionButton icon={EyeOff} label="下架髮型師" tone="warn" onClick={() => hideStylist(detail.item)} />
+            )}
+            {detail.kind === 'salonApplication' && detail.item.status === 'pending' && (
+              <>
+                <ActionButton icon={Check} label="批准沙龍" tone="good" onClick={() => approveSalon(detail.item)} />
+                <ActionButton icon={X} label="拒絕申請" tone="danger" onClick={() => rejectSalon(detail.item)} />
+              </>
+            )}
+            {detail.kind === 'salonApplication' && detail.item.status === 'approved' && (
+              <ActionButton icon={EyeOff} label="下架沙龍" tone="warn" onClick={() => hideSalon(detail.item)} />
+            )}
           </div>
         )}
+
+        <div className="detail-summary">
+          {sections[0]?.fields.slice(0, 4).map((field) => (
+            <div key={field.label}>
+              <span>{field.label}</span>
+              <strong>{detailValue(field.value)}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="detail-section">
+          <h3>作品集相片 / 短片</h3>
+          {media.length ? (
+            <div className="media-grid review-media-grid">
+              {media.map((item, index) => (
+                <figure key={`${item.imageURL}-${item.videoURL ?? ''}-${index}`} className={item.mediaKind === 'video' ? 'is-video' : ''}>
+                  {item.mediaKind === 'video' && item.videoURL ? (
+                    <video src={item.videoURL} poster={item.imageURL || undefined} controls preload="metadata" />
+                  ) : (
+                    <img src={item.imageURL || fallbackImage()} alt={item.title} onError={(event) => { event.currentTarget.src = fallbackImage(); }} />
+                  )}
+                  {item.mediaKind === 'video' && (
+                    <span className="media-badge">
+                      <Film size={13} />
+                      短片
+                    </span>
+                  )}
+                  <figcaption>{item.title}</figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : (
+            <EmptyLine text="此申請沒有可預覽的作品集媒體。" />
+          )}
+        </div>
+
+        {sections.map((section) => (
+          <div className="detail-section" key={section.title}>
+            <h3>{section.title}</h3>
+            <DetailFieldGrid fields={section.fields} />
+          </div>
+        ))}
 
         {!!services.length && (
           <div className="detail-section">
@@ -1016,7 +1118,7 @@ function DetailDrawer({ detail, data, onClose }: { detail: DetailTarget; data: A
               <div className="service-row" key={item.id}>
                 <div>
                   <strong>{item.name}</strong>
-                  <span>{item.description}</span>
+                  <span>{[item.category, `${item.duration} 分鐘`, item.description].filter(Boolean).join(' · ')}</span>
                 </div>
                 <b>HK${item.price}</b>
               </div>
@@ -1044,6 +1146,19 @@ function DetailDrawer({ detail, data, onClose }: { detail: DetailTarget; data: A
           <pre>{JSON.stringify(detail.item, null, 2)}</pre>
         </div>
       </aside>
+    </div>
+  );
+}
+
+function DetailFieldGrid({ fields }: { fields: DetailField[] }) {
+  return (
+    <div className="detail-fields">
+      {fields.map((field) => (
+        <div className="detail-field" key={field.label}>
+          <span>{field.label}</span>
+          <strong>{detailValue(field.value)}</strong>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1714,37 +1829,252 @@ function detailTitle(detail: DetailTarget) {
   }
 }
 
+function detailInfoSections(detail: DetailTarget): DetailSection[] {
+  switch (detail.kind) {
+    case 'stylistApplication':
+      return [
+        {
+          title: '審批狀態',
+          fields: [
+            { label: '狀態', value: statusLabel(detail.item.status) },
+            { label: '提交時間', value: formatDateSafe(detail.item.created_at) },
+            { label: '申請 ID', value: detail.item.id },
+            { label: '髮型師 ID', value: detail.item.stylist_id },
+            { label: '自動連接', value: detail.item.claimed_by ? '已連接 App 帳號' : '批准後等待同 email 註冊' },
+            { label: '已連接帳號', value: detail.item.claimed_by },
+            { label: '連接時間', value: formatDateSafe(detail.item.claimed_at) },
+            { label: 'Admin note', value: detail.item.admin_note },
+          ],
+        },
+        {
+          title: '聯絡與地址',
+          fields: [
+            { label: 'Email', value: detail.item.contact_email },
+            { label: '電話', value: detail.item.phone },
+            { label: '主要地區', value: detail.item.district },
+            { label: '地址 / 工作地點', value: detail.item.location },
+            { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
+          ],
+        },
+        {
+          title: '髮型師資料',
+          fields: [
+            { label: '名稱', value: detail.item.name },
+            { label: '職銜', value: detail.item.title },
+            { label: '語言', value: detail.item.languages },
+            { label: '經驗', value: detail.item.experience },
+            { label: '專長', value: commaList(detail.item.specialties) },
+            { label: '評分', value: `${detail.item.rating} / 5 (${detail.item.reviews_count} 評論)` },
+            { label: '基本價錢', value: `HK$${detail.item.base_price}` },
+            { label: 'Bio', value: detail.item.bio },
+          ],
+        },
+        {
+          title: '帳號與關聯',
+          fields: [
+            { label: '提交帳號', value: detail.item.submitted_by },
+            { label: 'Owner ID', value: detail.item.owner_id },
+            { label: 'Salon ID', value: detail.item.salon_id },
+            { label: '已審批者', value: detail.item.reviewed_by },
+            { label: '審批時間', value: formatDateSafe(detail.item.reviewed_at) },
+          ],
+        },
+      ];
+    case 'salonApplication':
+      return [
+        {
+          title: '審批狀態',
+          fields: [
+            { label: '狀態', value: statusLabel(detail.item.status) },
+            { label: '提交時間', value: formatDateSafe(detail.item.created_at) },
+            { label: '申請 ID', value: detail.item.id },
+            { label: '沙龍 ID', value: detail.item.salon_id },
+            { label: 'Admin note', value: detail.item.admin_note },
+          ],
+        },
+        {
+          title: '沙龍資料',
+          fields: [
+            { label: '名稱', value: detail.item.name },
+            { label: '主要地區', value: detail.item.district },
+            { label: '地址', value: detail.item.location },
+            { label: '電話', value: detail.item.phone },
+            { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
+            { label: '營業時間', value: detail.item.open_hours },
+            { label: '起步價', value: `HK$${detail.item.start_price}` },
+            { label: '標籤', value: commaList(detail.item.tags) },
+            { label: '評分', value: `${detail.item.rating} / 5` },
+          ],
+        },
+        {
+          title: '帳號與審批',
+          fields: [
+            { label: '提交帳號', value: detail.item.submitted_by },
+            { label: '已審批者', value: detail.item.reviewed_by },
+            { label: '審批時間', value: formatDateSafe(detail.item.reviewed_at) },
+          ],
+        },
+      ];
+    case 'stylist':
+      return [
+        {
+          title: '檔案資料',
+          fields: [
+            { label: '狀態', value: detail.item.is_active ? '上架中' : '已下架' },
+            { label: '髮型師 ID', value: detail.item.id },
+            { label: '名稱', value: detail.item.name },
+            { label: '職銜', value: detail.item.title },
+            { label: '地區', value: detail.item.district },
+            { label: '地址', value: detail.item.location },
+            { label: '電話', value: detail.item.phone },
+            { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
+            { label: '專長', value: commaList(detail.item.specialties) },
+            { label: 'Bio', value: detail.item.bio },
+          ],
+        },
+      ];
+    case 'salon':
+      return [
+        {
+          title: '檔案資料',
+          fields: [
+            { label: '狀態', value: detail.item.is_active ? '上架中' : '已下架' },
+            { label: '沙龍 ID', value: detail.item.id },
+            { label: '名稱', value: detail.item.name },
+            { label: '地區', value: detail.item.district },
+            { label: '地址', value: detail.item.location },
+            { label: '電話', value: detail.item.phone },
+            { label: 'Instagram', value: renderExternalLink(detail.item.instagram_url, detail.item.instagram_url) },
+            { label: '營業時間', value: detail.item.open_hours },
+            { label: '標籤', value: commaList(detail.item.tags) },
+          ],
+        },
+      ];
+    case 'inspiration':
+      return [
+        {
+          title: '靈感內容',
+          fields: [
+            { label: '狀態', value: detail.item.is_active ? '公開' : '已隱藏' },
+            { label: '標題', value: detail.item.title },
+            { label: '作者', value: detail.item.author_name },
+            { label: 'Studio', value: detail.item.studio },
+            { label: '標籤', value: commaList(detail.item.tags) },
+            { label: '詳情', value: detail.item.details },
+          ],
+        },
+      ];
+    case 'report':
+      return [
+        {
+          title: '檢舉資料',
+          fields: [
+            { label: '狀態', value: detail.item.status },
+            { label: '類型', value: detail.item.entity_type },
+            { label: '內容 ID', value: detail.item.entity_id },
+            { label: '原因', value: detail.item.reason },
+            { label: '詳情', value: detail.item.details },
+            { label: '建立時間', value: formatDateSafe(detail.item.created_at) },
+          ],
+        },
+      ];
+  }
+}
+
+function detailServices(detail: DetailTarget, data: AdminData) {
+  if (detail.kind === 'stylistApplication') return detail.item.services_payload ?? [];
+  if (detail.kind === 'stylist') return data.services.filter((item) => item.stylist_id === detail.item.id);
+  return [];
+}
+
 function detailMedia(detail: DetailTarget, data: AdminData) {
   switch (detail.kind) {
     case 'stylistApplication':
       return [
-        { url: detail.item.avatar_url, title: '頭像' },
-        ...normalizeWorks(detail.item.works_payload, detail.item.stylist_id).map((item) => ({ url: item.image_url, title: item.title })),
-      ].filter((item) => item.url);
+        coverMedia('頭像', detail.item.avatar_url),
+        ...(detail.item.works_payload ?? []).map((item, index) => workMedia(item, index, '作品')),
+      ].filter(Boolean) as DetailMediaItem[];
     case 'salonApplication':
       return [
-        { url: detail.item.image_url, title: '封面' },
-        ...normalizeSalonWorks(detail.item.works_payload, detail.item.salon_id).map((item) => ({ url: item.image_url, title: item.title })),
-      ].filter((item) => item.url);
+        coverMedia('封面', detail.item.image_url),
+        ...(detail.item.works_payload ?? []).map((item, index) => workMedia(item, index, '沙龍作品')),
+      ].filter(Boolean) as DetailMediaItem[];
     case 'stylist':
       return [
-        { url: detail.item.avatar_url, title: '頭像' },
+        coverMedia('頭像', detail.item.avatar_url),
         ...data.works
-          .filter((item) => item.stylist_id === detail.item.id && item.is_active !== false && isUsableRemoteMediaURL(item.image_url))
-          .map((item) => ({ url: item.image_url, title: item.title })),
-      ].filter((item) => item.url);
+          .filter((item) => item.stylist_id === detail.item.id && item.is_active !== false)
+          .map((item, index) => workMedia(item, index, '作品')),
+      ].filter(Boolean) as DetailMediaItem[];
     case 'salon':
       return [
-        { url: detail.item.image_url, title: '封面' },
+        coverMedia('封面', detail.item.image_url),
         ...data.salonWorks
-          .filter((item) => item.salon_id === detail.item.id && item.is_active !== false && isUsableRemoteMediaURL(item.image_url))
-          .map((item) => ({ url: item.image_url, title: item.title })),
-      ].filter((item) => item.url);
+          .filter((item) => item.salon_id === detail.item.id && item.is_active !== false)
+          .map((item, index) => workMedia(item, index, '沙龍作品')),
+      ].filter(Boolean) as DetailMediaItem[];
     case 'inspiration':
-      return validInspirationMediaURLs(detail.item).map((url, index) => ({ url, title: `Media ${index + 1}` }));
+      return validInspirationMediaURLs(detail.item).map((url, index) => ({
+        imageURL: url,
+        title: `Media ${index + 1}`,
+        mediaKind: detail.item.media_kinds?.[index] === 'video' ? 'video' : 'photo',
+        videoURL: detail.item.media_kinds?.[index] === 'video' ? url : undefined,
+      }));
     case 'report':
       return [];
   }
+}
+
+function coverMedia(title: string, url: string | null | undefined): DetailMediaItem | null {
+  const imageURL = firstUsableURL([url]);
+  if (!imageURL) return null;
+  return { title, imageURL, mediaKind: 'photo' };
+}
+
+function workMedia(item: PortfolioWork | SalonWork, index: number, fallbackTitle: string): DetailMediaItem | null {
+  const mediaKind = item.media_kind === 'video' || isUsableRemoteMediaURL(item.video_url) ? 'video' : 'photo';
+  const videoURL = mediaKind === 'video' ? firstUsableURL([item.video_url]) : '';
+  const imageURL = firstUsableURL([item.thumbnail_url, item.image_url, videoURL]);
+  if (!imageURL && !videoURL) return null;
+  return {
+    title: item.title || `${fallbackTitle} ${index + 1}`,
+    imageURL,
+    mediaKind,
+    videoURL: videoURL || undefined,
+  };
+}
+
+function firstUsableURL(values: Array<string | null | undefined>) {
+  return values.map((value) => (value ?? '').trim()).find(isUsableRemoteMediaURL) ?? '';
+}
+
+function detailValue(value: ReactNode) {
+  if (value === null || value === undefined || value === '') return <span className="muted-value">未填</span>;
+  return value;
+}
+
+function commaList(values: string[] | null | undefined) {
+  return (values ?? []).filter(Boolean).join('、');
+}
+
+function renderExternalLink(value: string | null | undefined, label: string | null | undefined) {
+  const href = normalizedExternalHref(value);
+  if (!href) return '';
+  return (
+    <a className="inline-link" href={href} target="_blank" rel="noreferrer">
+      {label || href}
+      <ExternalLink size={13} />
+    </a>
+  );
+}
+
+function normalizedExternalHref(value: string | null | undefined) {
+  const clean = (value ?? '').trim();
+  if (!clean) return '';
+  if (clean.startsWith('@')) return `https://instagram.com/${clean.slice(1)}`;
+  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(clean)) return clean;
+  if (/^[\w.]+$/.test(clean)) return `https://instagram.com/${clean.replace(/^@/, '')}`;
+  return `https://${clean.replace(/^\/+/, '')}`;
 }
 
 const brokenMediaFragments = ['photo-1595959183075-c1d0a174db24'];
@@ -1783,6 +2113,31 @@ function statusLabel(status: ApplicationStatus) {
     case 'hidden':
       return '已下架';
   }
+}
+
+function describeError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const message = [record.message, record.details, record.hint, record.code]
+      .filter((item) => typeof item === 'string' && item.trim())
+      .join(' · ');
+    if (message) return message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return '發生未知錯誤，請重新整理後再試。';
+    }
+  }
+  return '發生未知錯誤，請重新整理後再試。';
+}
+
+function formatDateSafe(value: string | null | undefined) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return formatDate(value);
 }
 
 function formatDate(value: string) {

@@ -25,10 +25,6 @@ struct StylistDashboardView: View {
     @State private var profileServices: [DashboardServiceDraft] = []
     @State private var selectedTags: Set<String> = ["挑染專家", "經典剪髮"]
     @State private var profileWorks: [PortfolioWork] = []
-    @State private var customServiceName = ""
-    @State private var customServiceCategory = "剪髮"
-    @State private var customServiceDescription = ""
-    @State private var customServicePrice = ""
     @State private var customWorkTitle = ""
     @State private var customWorkURL = ""
     @State private var instagramURL = ""
@@ -136,10 +132,6 @@ struct StylistDashboardView: View {
                     services: $profileServices,
                     selectedTags: $selectedTags,
                     works: $profileWorks,
-                    customServiceName: $customServiceName,
-                    customServiceCategory: $customServiceCategory,
-                    customServiceDescription: $customServiceDescription,
-                    customServicePrice: $customServicePrice,
                     customWorkTitle: $customWorkTitle,
                     customWorkURL: $customWorkURL,
                     instagramURL: $instagramURL,
@@ -176,9 +168,9 @@ struct StylistDashboardView: View {
                 id: service.id,
                 name: service.name,
                 category: service.category,
-                duration: service.duration,
+                duration: "\(service.duration)",
                 description: service.description,
-                price: service.price,
+                price: "\(service.price)",
                 isSelected: true
             )
         }
@@ -298,13 +290,14 @@ struct StylistDashboardView: View {
                 ServiceItem(
                     id: $0.id,
                     stylistID: stylistID,
-                    name: $0.name,
-                    category: $0.category,
-                    duration: $0.duration,
-                    description: $0.description,
-                    price: $0.price
+                    name: $0.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                    category: $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "剪髮" : $0.category.trimmingCharacters(in: .whitespacesAndNewlines),
+                    duration: parseDashboardPrice($0.duration, fallback: 60),
+                    description: $0.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                    price: parseDashboardPrice($0.price, fallback: 0)
                 )
             }
+            .filter { !$0.name.isEmpty }
         updated.works = await store.uploadPortfolioWorksIfNeeded(profileWorks, folder: "dashboard-portfolio")
         return updated
     }
@@ -1818,10 +1811,6 @@ private struct StylistProfileWorkspace: View {
     @Binding var services: [DashboardServiceDraft]
     @Binding var selectedTags: Set<String>
     @Binding var works: [PortfolioWork]
-    @Binding var customServiceName: String
-    @Binding var customServiceCategory: String
-    @Binding var customServiceDescription: String
-    @Binding var customServicePrice: String
     @Binding var customWorkTitle: String
     @Binding var customWorkURL: String
     @Binding var instagramURL: String
@@ -1868,11 +1857,7 @@ private struct StylistProfileWorkspace: View {
                     }
 
                     DashboardServiceEditor(
-                        services: $services,
-                        customName: $customServiceName,
-                        customCategory: $customServiceCategory,
-                        customDescription: $customServiceDescription,
-                        customPrice: $customServicePrice
+                        services: $services
                     )
 
                     DashboardTagEditor(tags: tags, selected: $selectedTags)
@@ -2174,156 +2159,144 @@ private struct DashboardMenuField: View {
 
 private struct DashboardServiceEditor: View {
     @Binding var services: [DashboardServiceDraft]
-    @Binding var customName: String
-    @Binding var customCategory: String
-    @Binding var customDescription: String
-    @Binding var customPrice: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("服務項目", systemImage: "rosette")
-                    .font(.system(size: 14, weight: .black))
-                    .foregroundStyle(Color(red: 0.67, green: 0.47, blue: 0.05))
-                Text("保留會公開顯示的服務、需時與價格。")
-                    .font(.system(size: 11, weight: .medium))
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label {
+                    Text("服務項目")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
+                } icon: {
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: 18, weight: .black))
+                        .foregroundStyle(Color(red: 0.67, green: 0.47, blue: 0.05))
+                }
+                Text("至少保留一項服務。批准後會成為 App 的服務清單參考。")
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .lineSpacing(3)
             }
 
-            ForEach($services) { $service in
-                DashboardServiceRowEditor(
-                    service: $service,
-                    canDelete: services.count > 1
-                ) { id in
-                    services.removeAll { $0.id == id }
-                }
-            }
+            Rectangle()
+                .fill(Color.black.opacity(0.12))
+                .frame(height: 1)
 
-            Divider()
-
-            Text("新增服務")
-                .font(.system(size: 13, weight: .black))
-            HStack(spacing: 8) {
-                TextField("服務名稱", text: $customName)
-                    .dashboardMiniField()
-                Menu {
-                    ForEach(["剪髮", "染髮", "燙髮", "護髮", "直髮"], id: \.self) { category in
-                        Button(category) { customCategory = category }
+            VStack(spacing: 14) {
+                ForEach(Array(services.indices), id: \.self) { index in
+                    let serviceID = services[index].id
+                    DashboardServiceCardEditor(
+                        number: index + 1,
+                        service: $services[index],
+                        canDelete: services.count > 1
+                    ) {
+                        services.removeAll { $0.id == serviceID }
                     }
-                } label: {
-                    Text(customCategory)
-                        .font(.system(size: 12, weight: .black))
-                        .frame(width: 92, height: 38)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.12), lineWidth: 1))
-                        .foregroundStyle(.black)
                 }
             }
-            HStack(spacing: 8) {
-                TextField("簡略耗時與服務細節描述", text: $customDescription)
-                    .dashboardMiniField()
-                TextField("定價金額", text: $customPrice)
-                    .keyboardType(.numberPad)
-                    .dashboardMiniField(width: 92)
-            }
+
             Button {
-                addCustomService()
+                addService()
             } label: {
-                Text("加入此項自訂服務定價")
-                    .font(.system(size: 13, weight: .black))
+                Label("新增服務項目", systemImage: "plus")
+                    .font(.system(size: 14, weight: .black))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 38)
-                    .background(Color.black.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(.black)
+                    .frame(height: 48)
+                    .background(Color.black, in: RoundedRectangle(cornerRadius: 14))
+                    .foregroundStyle(.white)
             }
             .buttonStyle(PressableButtonStyle())
         }
-        .padding(14)
-        .background(Color(red: 0.985, green: 0.985, blue: 0.975), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.black.opacity(0.08), lineWidth: 1))
+        .padding(16)
+        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.12), lineWidth: 1))
     }
 
-    private func addCustomService() {
-        let name = customName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
+    private func addService() {
         services.append(
             DashboardServiceDraft(
-                id: "dash_custom_\(Int(Date().timeIntervalSince1970 * 1000))",
-                name: name,
-                category: customCategory,
-                duration: 60,
-                description: customDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "髮型師自訂服務" : customDescription,
-                price: Int(customPrice) ?? 0,
+                id: "dash_service_\(Int(Date().timeIntervalSince1970 * 1000))",
+                name: "",
+                category: "剪髮",
+                duration: "60",
+                description: "",
+                price: "",
                 isSelected: true
             )
         )
-        customName = ""
-        customDescription = ""
-        customPrice = ""
     }
 }
 
-private struct DashboardServiceRowEditor: View {
+private struct DashboardServiceCardEditor: View {
+    let number: Int
     @Binding var service: DashboardServiceDraft
     let canDelete: Bool
-    let onDelete: (String) -> Void
-
-    private let categories = ["剪髮", "染髮", "燙髮", "護髮", "直髮"]
+    let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                TextField("服務名稱", text: $service.name)
-                    .dashboardMiniField()
-                categoryMenu
-                deleteButton
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Text("服務 \(number)")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(Color(red: 0.08, green: 0.10, blue: 0.16))
+                Spacer()
+                if canDelete {
+                    deleteButton
+                }
             }
 
-            HStack(spacing: 8) {
-                TextField("需時分鐘", value: $service.duration, format: .number)
+            VStack(alignment: .leading, spacing: 14) {
+                DashboardApplyServiceField(label: "服務名稱", placeholder: "例如：招牌剪髮", text: $service.name)
+                DashboardApplyServiceField(label: "類別", placeholder: "剪髮 / 染髮 / 護理", text: $service.category)
+                DashboardApplyServiceField(label: "需時分鐘", placeholder: "60", text: $service.duration)
                     .keyboardType(.numberPad)
-                    .dashboardMiniField(width: 88)
-                TextField("價錢 HK$", value: $service.price, format: .number)
+                DashboardApplyServiceField(label: "價錢 HK$", placeholder: "380", text: $service.price)
                     .keyboardType(.numberPad)
-                    .dashboardMiniField(width: 102)
-                TextField("簡短描述", text: $service.description)
-                    .dashboardMiniField()
+                DashboardApplyServiceField(label: "簡短描述", placeholder: "包含洗髮與造型", text: $service.description)
             }
         }
-        .padding(12)
-        .background(.white, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06), lineWidth: 1))
-    }
-
-    private var categoryMenu: some View {
-        Menu {
-            ForEach(categories, id: \.self) { category in
-                Button(category) { service.category = category }
-            }
-        } label: {
-            Text(service.category)
-                .font(.system(size: 12, weight: .black))
-                .frame(width: 76, height: 38)
-                .background(.white, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.12), lineWidth: 1))
-                .foregroundStyle(.black)
-        }
-        .buttonStyle(PressableButtonStyle())
+        .padding(16)
+        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.black.opacity(0.12), lineWidth: 1))
     }
 
     private var deleteButton: some View {
         Button {
-            onDelete(service.id)
+            onDelete()
         } label: {
             Image(systemName: "trash")
-                .font(.system(size: 13, weight: .black))
+                .font(.system(size: 17, weight: .black))
                 .frame(width: 38, height: 38)
-                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(.red)
+                .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.18), lineWidth: 1))
+                .foregroundStyle(Color(red: 0.84, green: 0.04, blue: 0.08))
         }
         .buttonStyle(PressableButtonStyle())
-        .disabled(!canDelete)
-        .opacity(canDelete ? 1 : 0.35)
+    }
+}
+
+private struct DashboardApplyServiceField: View {
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(Color(red: 0.44, green: 0.47, blue: 0.50))
+
+            TextField(placeholder, text: $text)
+                .font(.system(size: 16, weight: .black))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(.white, in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).stroke(.black, lineWidth: 2))
+                .foregroundStyle(.black)
+        }
     }
 }
 
@@ -2564,25 +2537,24 @@ private struct DashboardServiceDraft: Identifiable, Hashable {
     var id: String
     var name: String
     var category: String
-    var duration: Int
+    var duration: String
     var description: String
-    var price: Int
+    var price: String
     var isSelected: Bool
 
     static func optionalDefaults(stylistID: String) -> [DashboardServiceDraft] {
         [
-            DashboardServiceDraft(id: "\(stylistID)_optional_perm", name: "韓系免整理慵懶潤雲朵燙 (漫髮)", category: "燙髮", duration: 150, description: "客製化修飾臉型大波浪，自然蓬鬆彈力", price: 980, isSelected: false),
-            DashboardServiceDraft(id: "\(stylistID)_optional_straight", name: "日本膠原蛋白極上縮毛離子矯正 (直髮)", category: "直髮", duration: 180, description: "拯救嚴重自然捲與毛躁粗硬，重現瀑布柔順", price: 1380, isSelected: false),
-            DashboardServiceDraft(id: "\(stylistID)_optional_color", name: "明星巴黎手刷多層次手感挑色漂染 (染髮)", category: "染髮", duration: 180, description: "高質感 3D 立體手畫染，打造歐美時間漸層", price: 1680, isSelected: false)
+            DashboardServiceDraft(id: "\(stylistID)_optional_perm", name: "韓系免整理慵懶潤雲朵燙 (漫髮)", category: "燙髮", duration: "150", description: "客製化修飾臉型大波浪，自然蓬鬆彈力", price: "980", isSelected: false),
+            DashboardServiceDraft(id: "\(stylistID)_optional_straight", name: "日本膠原蛋白極上縮毛離子矯正 (直髮)", category: "直髮", duration: "180", description: "拯救嚴重自然捲與毛躁粗硬，重現瀑布柔順", price: "1380", isSelected: false),
+            DashboardServiceDraft(id: "\(stylistID)_optional_color", name: "明星巴黎手刷多層次手感挑色漂染 (染髮)", category: "染髮", duration: "180", description: "高質感 3D 立體手畫染，打造歐美時間漸層", price: "1680", isSelected: false)
         ]
     }
 
     static func starterDefaults(stylistID: String) -> [DashboardServiceDraft] {
         [
-            DashboardServiceDraft(id: "\(stylistID)_starter_cut", name: "招牌精修剪髮", category: "剪髮", duration: 60, description: "包含洗髮、頭型修飾與基礎造型", price: 380, isSelected: true),
-            DashboardServiceDraft(id: "\(stylistID)_starter_color", name: "質感染髮與光澤護理", category: "染髮", duration: 120, description: "依髮質調配色調，附基礎護理", price: 880, isSelected: true),
-            DashboardServiceDraft(id: "\(stylistID)_starter_treatment", name: "深層護髮修復", category: "護髮", duration: 90, description: "改善毛躁與受損髮尾", price: 680, isSelected: true)
-        ] + optionalDefaults(stylistID: stylistID)
+            DashboardServiceDraft(id: "\(stylistID)_starter_cut", name: "招牌精修剪髮", category: "剪髮", duration: "60", description: "包含溝通、洗髮與造型整理", price: "380", isSelected: true),
+            DashboardServiceDraft(id: "\(stylistID)_starter_color", name: "高級染護服務", category: "染髮", duration: "120", description: "按髮質與目標色客製調配", price: "880", isSelected: true)
+        ]
     }
 }
 

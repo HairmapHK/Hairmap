@@ -277,6 +277,22 @@ final class SupabaseGateway {
         }
     }
 
+    private struct StylistApplicationReviewPayload: Encodable {
+        let status: String
+        let reviewedBy: UUID
+        let reviewedAt: String
+        let stylistID: String
+        let ownerID: UUID?
+
+        enum CodingKeys: String, CodingKey {
+            case status
+            case reviewedBy = "reviewed_by"
+            case reviewedAt = "reviewed_at"
+            case stylistID = "stylist_id"
+            case ownerID = "owner_id"
+        }
+    }
+
     private static let iso8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1132,12 +1148,43 @@ final class SupabaseGateway {
             .execute()
     }
 
-    func approveStylistApplication(_ application: StylistApplication) async throws {
-        let stylist = application.asStylist()
+    func approveStylistApplication(_ application: StylistApplication, replacing existingStylist: Stylist? = nil) async throws {
+        var stylist = application.asStylist()
+        if let existingStylist {
+            stylist.id = existingStylist.id
+            if stylist.salonID == "independent-stylist-studio" {
+                stylist.salonID = existingStylist.salonID
+            }
+            stylist.ownerID = application.ownerID ?? existingStylist.ownerID
+            stylist.rating = existingStylist.rating
+            stylist.reviewsCount = existingStylist.reviewsCount
+            stylist.isFeatured = existingStylist.isFeatured
+            stylist.displayOrder = existingStylist.displayOrder
+            stylist.services = stylist.services.map { service in
+                var updated = service
+                updated.stylistID = existingStylist.id
+                return updated
+            }
+            stylist.works = stylist.works.map { work in
+                var updated = work
+                updated.stylistID = existingStylist.id
+                return updated
+            }
+        }
         try await saveStylist(stylist)
-        try await setStylistApplicationStatus(id: application.id, status: .approved)
-        if application.ownerID != nil {
-            try await linkApprovedStylistProfile(application)
+        try await setStylistApplicationStatus(
+            id: application.id,
+            status: .approved,
+            stylistID: stylist.id,
+            ownerID: stylist.ownerID
+        )
+        if stylist.ownerID != nil {
+            try await linkApprovedStylistProfile(
+                ownerID: stylist.ownerID,
+                displayName: application.name,
+                stylistID: stylist.id,
+                avatarURL: application.avatarURL
+            )
         }
     }
 
@@ -1185,18 +1232,38 @@ final class SupabaseGateway {
             .execute()
     }
 
-    private func setStylistApplicationStatus(id: String, status: CatalogApplicationStatus) async throws {
+    private func setStylistApplicationStatus(
+        id: String,
+        status: CatalogApplicationStatus,
+        stylistID: String? = nil,
+        ownerID: UUID? = nil
+    ) async throws {
         guard let client else { return }
         let session = try await client.auth.session
-        let payload = ApplicationReviewPayload(
-            status: status.rawValue,
-            reviewedBy: session.user.id,
-            reviewedAt: Self.iso8601.string(from: Date())
-        )
-        try await client.from("stylist_applications")
-            .update(payload)
-            .eq("id", value: id)
-            .execute()
+        let reviewedAt = Self.iso8601.string(from: Date())
+        if let stylistID {
+            let payload = StylistApplicationReviewPayload(
+                status: status.rawValue,
+                reviewedBy: session.user.id,
+                reviewedAt: reviewedAt,
+                stylistID: stylistID,
+                ownerID: ownerID
+            )
+            try await client.from("stylist_applications")
+                .update(payload)
+                .eq("id", value: id)
+                .execute()
+        } else {
+            let payload = ApplicationReviewPayload(
+                status: status.rawValue,
+                reviewedBy: session.user.id,
+                reviewedAt: reviewedAt
+            )
+            try await client.from("stylist_applications")
+                .update(payload)
+                .eq("id", value: id)
+                .execute()
+        }
     }
 
     private func setSalonApplicationStatus(id: String, status: CatalogApplicationStatus) async throws {
@@ -1213,8 +1280,8 @@ final class SupabaseGateway {
             .execute()
     }
 
-    private func linkApprovedStylistProfile(_ application: StylistApplication) async throws {
-        guard let client, let ownerID = application.ownerID else { return }
+    private func linkApprovedStylistProfile(ownerID: UUID?, displayName: String, stylistID: String, avatarURL: String) async throws {
+        guard let client, let ownerID else { return }
         struct Payload: Encodable {
             let displayName: String
             let stylistID: String
@@ -1230,9 +1297,9 @@ final class SupabaseGateway {
         try await client.from("profiles")
             .update(
                 Payload(
-                    displayName: application.name,
-                    stylistID: application.stylistID,
-                    avatarURL: application.avatarURL
+                    displayName: displayName,
+                    stylistID: stylistID,
+                    avatarURL: avatarURL
                 )
             )
             .eq("id", value: ownerID.uuidString)

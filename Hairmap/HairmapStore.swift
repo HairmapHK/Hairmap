@@ -5,6 +5,12 @@ import UIKit
 import UserNotifications
 import ImageIO
 
+private struct HairmapStoreMessageError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
 enum SocialAuthProvider {
     case apple
     case google
@@ -1011,11 +1017,12 @@ final class HairmapStore {
 
     func approveStylistApplication(_ application: StylistApplication) async {
         do {
-            try await gateway.approveStylistApplication(application)
+            let replacement = try stylistReplacementTarget(for: application)
+            try await gateway.approveStylistApplication(application, replacing: replacement)
             await refreshCatalog()
             statusMessage = "\(application.name) 已批准並公開到 Supabase"
         } catch {
-            statusMessage = "髮型師申請批准失敗"
+            statusMessage = error.localizedDescription.isEmpty ? "髮型師申請批准失敗" : error.localizedDescription
         }
     }
 
@@ -2042,6 +2049,101 @@ final class HairmapStore {
         } catch {
             return
         }
+    }
+
+    private func stylistReplacementTarget(for application: StylistApplication) throws -> Stylist? {
+        let ownerIDs = Array(Set([application.ownerID, application.claimedBy, application.submittedBy].compactMap { $0 }))
+        for ownerID in ownerIDs {
+            if let match = try singleStylistReplacementMatch(
+                stylists.filter { $0.ownerID == ownerID },
+                application: application,
+                reason: "同一髮型師帳號"
+            ) {
+                return match
+            }
+        }
+
+        if let exact = stylists.first(where: { $0.id == application.stylistID }) {
+            return exact
+        }
+
+        let email = normalizedLookup(application.contactEmail)
+        if !email.isEmpty {
+            let matches = pendingStylistApplications
+                .filter { $0.id != application.id && $0.status == .approved && normalizedLookup($0.contactEmail) == email }
+                .compactMap { approvedApplication in
+                    stylists.first { $0.id == approvedApplication.stylistID }
+                }
+            if let match = try singleStylistReplacementMatch(matches, application: application, reason: "同一申請 Email") {
+                return match
+            }
+        }
+
+        let phone = normalizedPhone(application.phone)
+        if !phone.isEmpty {
+            if let match = try singleStylistReplacementMatch(
+                stylists.filter { $0.isActive && normalizedPhone($0.phone) == phone },
+                application: application,
+                reason: "同一電話"
+            ) {
+                return match
+            }
+        }
+
+        let instagram = normalizedInstagram(application.instagramURL)
+        if !instagram.isEmpty {
+            if let match = try singleStylistReplacementMatch(
+                stylists.filter { $0.isActive && normalizedInstagram($0.instagramURL) == instagram },
+                application: application,
+                reason: "同一 Instagram"
+            ) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private func singleStylistReplacementMatch(_ matches: [Stylist], application: StylistApplication, reason: String) throws -> Stylist? {
+        var seen: Set<String> = []
+        let unique = matches.filter { stylist in
+            guard !seen.contains(stylist.id) else { return false }
+            seen.insert(stylist.id)
+            return true
+        }
+        if unique.isEmpty { return nil }
+        if unique.count == 1 { return unique[0] }
+        if let exact = unique.first(where: { $0.id == application.stylistID }) {
+            return exact
+        }
+        throw HairmapStoreMessageError(message: "\(reason) 找到多於一個已存在髮型師檔案，請先在檔案頁確認應該保留哪一個。")
+    }
+
+    private func normalizedLookup(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    }
+
+    private func normalizedPhone(_ value: String?) -> String {
+        value?.filter(\.isNumber) ?? ""
+    }
+
+    private func normalizedInstagram(_ value: String?) -> String {
+        let clean = normalizedLookup(value)
+        guard !clean.isEmpty else { return "" }
+        let withoutProtocol = clean
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "www.", with: "")
+        let withoutHost = withoutProtocol
+            .replacingOccurrences(of: "instagram.com/", with: "")
+            .replacingOccurrences(of: "instagr.am/", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "@/ "))
+        return withoutHost
+            .split { character in
+                character == "/" || character == "?" || character == "#"
+            }
+            .first
+            .map(String.init) ?? ""
     }
 
     private var draftStylistID: String {

@@ -354,7 +354,7 @@ export default function App() {
               statusFilter={statusFilter}
               setStatusFilter={setStatusFilter}
               setDetail={setDetail}
-              approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id))}
+              approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id, data))}
               rejectStylist={(app) => runAction('拒絕髮型師申請', () => updateStylistApplicationStatus(app, 'rejected', session.user.id))}
               hideStylist={(app) => runAction('下架髮型師檔案', () => hideStylistApplication(app, session.user.id))}
               approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id))}
@@ -405,7 +405,7 @@ export default function App() {
           detail={detail}
           data={data}
           onClose={() => setDetail(null)}
-          approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id))}
+          approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id, data))}
           rejectStylist={(app) => runAction('拒絕髮型師申請', () => updateStylistApplicationStatus(app, 'rejected', session.user.id))}
           hideStylist={(app) => runAction('下架髮型師檔案', () => hideStylistApplication(app, session.user.id))}
           approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id))}
@@ -1170,17 +1170,106 @@ function DetailFieldGrid({ fields }: { fields: DetailField[] }) {
   );
 }
 
-async function approveStylistApplication(application: StylistApplication, userID: string) {
+function resolveStylistReplacementTarget(application: StylistApplication, data: AdminData) {
+  const ownerCandidates = compactStrings([application.owner_id, application.claimed_by, application.submitted_by]);
+  for (const ownerID of ownerCandidates) {
+    const ownerMatches = data.stylists.filter((stylist) => stylist.owner_id === ownerID);
+    const ownerMatch = pickSingleStylistMatch(ownerMatches, application, '同一髮型師帳號');
+    if (ownerMatch) return ownerMatch;
+  }
+
+  const exactIDMatch = data.stylists.find((stylist) => stylist.id === application.stylist_id);
+  if (exactIDMatch) return exactIDMatch;
+
+  const email = normalizeLookup(application.contact_email);
+  if (email) {
+    const applicationMatches = data.stylistApplications
+      .filter((item) => item.id !== application.id && item.status === 'approved' && normalizeLookup(item.contact_email) === email)
+      .map((item) => data.stylists.find((stylist) => stylist.id === item.stylist_id))
+      .filter(isStylist);
+    const emailMatch = pickSingleStylistMatch(applicationMatches, application, '同一申請 Email');
+    if (emailMatch) return emailMatch;
+  }
+
+  const phone = normalizePhone(application.phone);
+  if (phone) {
+    const phoneMatches = data.stylists.filter((stylist) => stylist.is_active && normalizePhone(stylist.phone) === phone);
+    const phoneMatch = pickSingleStylistMatch(phoneMatches, application, '同一電話');
+    if (phoneMatch) return phoneMatch;
+  }
+
+  const instagram = normalizeInstagram(application.instagram_url);
+  if (instagram) {
+    const instagramMatches = data.stylists.filter((stylist) => stylist.is_active && normalizeInstagram(stylist.instagram_url) === instagram);
+    const instagramMatch = pickSingleStylistMatch(instagramMatches, application, '同一 Instagram');
+    if (instagramMatch) return instagramMatch;
+  }
+
+  return null;
+}
+
+function pickSingleStylistMatch(matches: Stylist[], application: StylistApplication, reason: string) {
+  const unique = uniqueStylists(matches);
+  if (unique.length === 0) return null;
+  if (unique.length === 1) return unique[0];
+
+  const exact = unique.find((stylist) => stylist.id === application.stylist_id);
+  if (exact) return exact;
+
+  throw new Error(`${reason} 找到多於一個已存在髮型師檔案，請先在檔案頁確認應該保留哪一個。`);
+}
+
+function uniqueStylists(items: Stylist[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function compactStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
+}
+
+function isStylist(value: Stylist | undefined): value is Stylist {
+  return Boolean(value);
+}
+
+function normalizeLookup(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function normalizePhone(value: string | null | undefined) {
+  return value?.replace(/\D/g, '') ?? '';
+}
+
+function normalizeInstagram(value: string | null | undefined) {
+  const clean = normalizeLookup(value);
+  if (!clean) return '';
+  const withoutProtocol = clean.replace(/^https?:\/\//, '').replace(/^www\./, '');
+  const withoutHost = withoutProtocol.replace(/^(instagram\.com|instagr\.am)\//, '');
+  return withoutHost.replace(/^@/, '').replace(/\/+$/, '').split(/[/?#]/)[0] ?? '';
+}
+
+async function approveStylistApplication(application: StylistApplication, userID: string, data: AdminData) {
+  const replacement = resolveStylistReplacementTarget(application, data);
+  const targetStylistID = replacement?.id ?? application.stylist_id;
+  const ownerID = application.owner_id ?? replacement?.owner_id ?? null;
+  const salonID =
+    replacement && application.salon_id === 'independent-stylist-studio'
+      ? replacement.salon_id
+      : application.salon_id || replacement?.salon_id || 'independent-stylist-studio';
   const stylist = {
-    id: application.stylist_id,
-    owner_id: application.owner_id,
-    salon_id: application.salon_id,
+    id: targetStylistID,
+    owner_id: ownerID,
+    salon_id: salonID,
     district: application.district ?? '',
     location: application.location ?? '',
     name: application.name,
     title: application.title,
-    rating: application.rating,
-    reviews_count: application.reviews_count,
+    rating: replacement?.rating ?? application.rating,
+    reviews_count: replacement?.reviews_count ?? application.reviews_count,
     languages: application.languages,
     experience: application.experience,
     specialties: application.specialties ?? [],
@@ -1190,31 +1279,34 @@ async function approveStylistApplication(application: StylistApplication, userID
     bio: application.bio ?? '',
     base_price: application.base_price,
     is_active: true,
-    is_featured: false,
-    display_order: 100,
+    is_featured: replacement?.is_featured ?? false,
+    display_order: replacement?.display_order ?? 100,
   };
 
   await assertOk(supabase.from('stylists').upsert(stylist, { onConflict: 'id' }));
-  await assertOk(supabase.from('services').delete().eq('stylist_id', application.stylist_id));
+  await assertOk(supabase.from('services').delete().eq('stylist_id', targetStylistID));
 
-  const services = normalizeServices(application.services_payload, application.stylist_id);
+  const services = normalizeServices(application.services_payload, targetStylistID);
   if (services.length) await assertOk(supabase.from('services').insert(services));
 
-  await assertOk(supabase.from('portfolio_works').delete().eq('stylist_id', application.stylist_id));
-  const works = normalizeWorks(application.works_payload, application.stylist_id);
+  await assertOk(supabase.from('portfolio_works').delete().eq('stylist_id', targetStylistID));
+  const works = normalizeWorks(application.works_payload, targetStylistID);
   if (works.length) await assertOk(supabase.from('portfolio_works').insert(works));
 
-  await updateStylistApplicationStatus(application, 'approved', userID);
-  if (application.owner_id) {
+  await updateStylistApplicationStatus(application, 'approved', userID, {
+    stylist_id: targetStylistID,
+    owner_id: ownerID,
+  });
+  if (ownerID) {
     await assertOk(
       supabase
         .from('profiles')
         .update({
           display_name: application.name,
-          stylist_id: application.stylist_id,
+          stylist_id: targetStylistID,
           avatar_url: application.avatar_url,
         })
-        .eq('id', application.owner_id),
+        .eq('id', ownerID),
     );
   }
 }
@@ -1256,12 +1348,17 @@ async function hideSalonApplication(application: SalonApplication, userID: strin
   await updateSalonApplicationStatus(application, 'hidden', userID);
 }
 
-async function updateStylistApplicationStatus(application: StylistApplication, status: ApplicationStatus, userID: string) {
+async function updateStylistApplicationStatus(
+  application: StylistApplication,
+  status: ApplicationStatus,
+  userID: string,
+  extra: Partial<Pick<StylistApplication, 'stylist_id' | 'owner_id'>> = {},
+) {
   const note = status === 'rejected' ? window.prompt('拒絕原因或 admin note，可留空') ?? application.admin_note : application.admin_note;
   await assertOk(
     supabase
       .from('stylist_applications')
-      .update({ status, admin_note: note, reviewed_by: userID, reviewed_at: new Date().toISOString() })
+      .update({ status, admin_note: note, reviewed_by: userID, reviewed_at: new Date().toISOString(), ...extra })
       .eq('id', application.id),
   );
 }

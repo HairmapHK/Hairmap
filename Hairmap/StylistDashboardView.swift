@@ -15,6 +15,9 @@ struct StylistDashboardView: View {
     @State private var profileName = ""
     @State private var profileTitle = ""
     @State private var profilePhone = ""
+    @State private var profileDistrict = "油尖旺區"
+    @State private var profileLocation = ""
+    @State private var profileBasePrice = "380"
     @State private var profileBio = ""
     @State private var profileExperience = "10年以上與合夥"
     @State private var profileLanguages = "中 / 英"
@@ -123,6 +126,9 @@ struct StylistDashboardView: View {
                     name: $profileName,
                     title: $profileTitle,
                     phone: $profilePhone,
+                    district: $profileDistrict,
+                    location: $profileLocation,
+                    basePrice: $profileBasePrice,
                     bio: $profileBio,
                     experience: $profileExperience,
                     languages: $profileLanguages,
@@ -155,6 +161,9 @@ struct StylistDashboardView: View {
         profileName = hasApprovedProfile ? stylist.name : (cleanProfileName == "待建立髮型師" ? "" : cleanProfileName)
         profileTitle = hasApprovedProfile ? stylist.title : ""
         profilePhone = hasApprovedProfile ? stylist.phone : ""
+        profileDistrict = stylist.displayDistrict == "香港" ? "油尖旺區" : stylist.displayDistrict
+        profileLocation = hasApprovedProfile ? stylist.location : ""
+        profileBasePrice = stylist.basePrice > 0 ? "\(stylist.basePrice)" : "380"
         profileBio = hasApprovedProfile ? stylist.bio : ""
         profileExperience = stylist.experience
         profileLanguages = stylist.languages
@@ -175,7 +184,7 @@ struct StylistDashboardView: View {
         }
         profileServices = loadedServices.isEmpty
             ? DashboardServiceDraft.starterDefaults(stylistID: stylistID)
-            : loadedServices + DashboardServiceDraft.optionalDefaults(stylistID: stylistID)
+            : loadedServices
     }
 
     private func loadAvatar(_ item: PhotosPickerItem?) async {
@@ -274,6 +283,9 @@ struct StylistDashboardView: View {
         updated.name = profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? updated.name : profileName
         updated.title = profileTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? updated.title : profileTitle
         updated.phone = profilePhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.district = profileDistrict.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.location = profileLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.basePrice = parseDashboardPrice(profileBasePrice, fallback: updated.basePrice)
         updated.bio = profileBio
         updated.experience = profileExperience
         updated.languages = profileLanguages
@@ -282,7 +294,6 @@ struct StylistDashboardView: View {
         updated.avatarURL = await store.uploadProfileMediaIfNeeded(avatarSource, folder: "dashboard-avatars")
         updated.specialties = Array(selectedTags).sorted()
         updated.services = profileServices
-            .filter(\.isSelected)
             .map {
                 ServiceItem(
                     id: $0.id,
@@ -296,6 +307,11 @@ struct StylistDashboardView: View {
             }
         updated.works = await store.uploadPortfolioWorksIfNeeded(profileWorks, folder: "dashboard-portfolio")
         return updated
+    }
+
+    private func parseDashboardPrice(_ value: String, fallback: Int) -> Int {
+        let digits = value.filter(\.isNumber)
+        return Int(digits) ?? fallback
     }
 }
 
@@ -1792,6 +1808,9 @@ private struct StylistProfileWorkspace: View {
     @Binding var name: String
     @Binding var title: String
     @Binding var phone: String
+    @Binding var district: String
+    @Binding var location: String
+    @Binding var basePrice: String
     @Binding var bio: String
     @Binding var experience: String
     @Binding var languages: String
@@ -1815,22 +1834,17 @@ private struct StylistProfileWorkspace: View {
     @State private var isDeletingAccount = false
 
     private let tags = ["挑染專家", "經典剪髮", "歐美挑染", "漸層推剪", "韓式燙髮", "縮毛矯正", "女神大波浪", "深層護理", "直髮柔順"]
-    private let avatarPresets = [
-        DashboardImageChoice(title: "美髮現代女設計師", url: "https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=600&q=80"),
-        DashboardImageChoice(title: "經驗紳士男設計師", url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80"),
-        DashboardImageChoice(title: "韓系甜美女設計師", url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80")
-    ]
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 DashboardSectionHeader(
-                    eyebrow: "🟡 My Stylist Profile",
+                    eyebrow: "My Stylist Profile",
                     title: hasApprovedProfile ? "個人檔案更新" : "建立髮型師檔案",
                     trailing: hasApprovedProfile ? "需審批" : "待建立"
                 )
 
                 DashboardFormCard {
-                    Text(hasApprovedProfile ? "如需更改公開名片資料，請在此更新並提交審批；管理員批准後才會同步到顧客端 app 頁面。" : "首次登入後請先建立髮型師檔案。提交後會進入管理員審批，批准前不會公開到顧客端。")
+                    Text(hasApprovedProfile ? "更新資料會先提交審批；批准後會直接取代現有公開檔案，不需要另外下架舊檔。" : "首次建立檔案會先提交審批；批准後才會公開到顧客端。")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                         .lineSpacing(3)
@@ -1841,6 +1855,11 @@ private struct StylistProfileWorkspace: View {
                     DashboardInputField(label: "設計師姓名 *", placeholder: "Master Leo", text: $name)
                     DashboardInputField(label: "頭銜職稱 *", placeholder: "首席設計師", text: $title)
                     DashboardInputField(label: "髮型師聯絡電話 *", placeholder: "+852 6123 4567", text: $phone, keyboard: .phonePad)
+                    HStack(spacing: 10) {
+                        DashboardMenuField(label: "主要地區 *", selection: $district, options: HairmapDistricts.all)
+                        DashboardInputField(label: "最低服務價 HK$ *", placeholder: "380", text: $basePrice, keyboard: .numberPad)
+                    }
+                    DashboardInputField(label: "工作室 / 服務地址 *", placeholder: "尖沙咀海港城附近", text: $location)
                     DashboardTextArea(label: "個人簡介", placeholder: "10年以上明星美髮經驗。擅長巴黎 Balayage 手刷漸層挑染...", text: $bio, height: 110)
 
                     HStack(spacing: 10) {
@@ -1862,7 +1881,7 @@ private struct StylistProfileWorkspace: View {
                         avatarURL: $avatarURL,
                         pickedAvatarItem: $pickedAvatarItem,
                         uploadedAvatarData: uploadedAvatarData,
-                        presets: avatarPresets
+                        presets: []
                     )
 
                     DashboardPortfolioEditor(
@@ -1950,7 +1969,7 @@ private struct DashboardApplicationReviewCard: View {
             Label("提交平台審批", systemImage: "checkmark.seal")
                 .font(.system(size: 14, weight: .black))
                 .foregroundStyle(Color(red: 0.67, green: 0.47, blue: 0.05))
-            Text("新增或更新公開檔案時會先儲存在 Supabase 申請表，等管理員批准後才會出現在顧客端。")
+            Text("新增或更新公開檔案時會先儲存在 Supabase 申請表；如已有公開檔案，管理員批准後會直接覆蓋原有資料。")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineSpacing(2)
@@ -2163,58 +2182,26 @@ private struct DashboardServiceEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Label("設定精選服務項目與價格名冊", systemImage: "rosette")
+                Label("服務項目", systemImage: "rosette")
                     .font(.system(size: 14, weight: .black))
                     .foregroundStyle(Color(red: 0.67, green: 0.47, blue: 0.05))
-                Text("勾選您要提供的項目並自訂價格。未勾選的項目將不會顯示在您的服務項目中。")
+                Text("保留會公開顯示的服務、需時與價格。")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
             ForEach($services) { $service in
-                HStack(alignment: .top, spacing: 10) {
-                    Button {
-                        service.isSelected.toggle()
-                    } label: {
-                        Image(systemName: service.isSelected ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 19, weight: .black))
-                            .foregroundStyle(service.isSelected ? .black : .secondary)
-                    }
-                    .buttonStyle(PressableButtonStyle())
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(service.name)
-                            .font(.system(size: 13, weight: .black))
-                            .foregroundStyle(.black)
-                        Text("\(service.description)・\(service.duration) 分鐘")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 6)
-
-                    HStack(spacing: 6) {
-                        Text("HK$")
-                            .font(.system(size: 10, weight: .black, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        TextField("0", value: $service.price, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.center)
-                            .font(.system(size: 13, weight: .black, design: .monospaced))
-                            .frame(width: 64)
-                            .frame(height: 32)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 6))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.black.opacity(0.1), lineWidth: 1))
-                    }
+                DashboardServiceRowEditor(
+                    service: $service,
+                    canDelete: services.count > 1
+                ) { id in
+                    services.removeAll { $0.id == id }
                 }
-                .padding(12)
-                .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06), lineWidth: 1))
             }
 
             Divider()
 
-            Text("+ 新增與目前額外剪染項目")
+            Text("新增服務")
                 .font(.system(size: 13, weight: .black))
             HStack(spacing: 8) {
                 TextField("服務名稱", text: $customName)
@@ -2273,6 +2260,70 @@ private struct DashboardServiceEditor: View {
         customName = ""
         customDescription = ""
         customPrice = ""
+    }
+}
+
+private struct DashboardServiceRowEditor: View {
+    @Binding var service: DashboardServiceDraft
+    let canDelete: Bool
+    let onDelete: (String) -> Void
+
+    private let categories = ["剪髮", "染髮", "燙髮", "護髮", "直髮"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                TextField("服務名稱", text: $service.name)
+                    .dashboardMiniField()
+                categoryMenu
+                deleteButton
+            }
+
+            HStack(spacing: 8) {
+                TextField("需時分鐘", value: $service.duration, format: .number)
+                    .keyboardType(.numberPad)
+                    .dashboardMiniField(width: 88)
+                TextField("價錢 HK$", value: $service.price, format: .number)
+                    .keyboardType(.numberPad)
+                    .dashboardMiniField(width: 102)
+                TextField("簡短描述", text: $service.description)
+                    .dashboardMiniField()
+            }
+        }
+        .padding(12)
+        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.06), lineWidth: 1))
+    }
+
+    private var categoryMenu: some View {
+        Menu {
+            ForEach(categories, id: \.self) { category in
+                Button(category) { service.category = category }
+            }
+        } label: {
+            Text(service.category)
+                .font(.system(size: 12, weight: .black))
+                .frame(width: 76, height: 38)
+                .background(.white, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(.black.opacity(0.12), lineWidth: 1))
+                .foregroundStyle(.black)
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+
+    private var deleteButton: some View {
+        Button {
+            onDelete(service.id)
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 13, weight: .black))
+                .frame(width: 38, height: 38)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(.red)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .disabled(!canDelete)
+        .opacity(canDelete ? 1 : 0.35)
     }
 }
 
@@ -2340,31 +2391,33 @@ private struct DashboardAvatarEditor: View {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: avatarColumns, spacing: 9) {
-                ForEach(presets) { preset in
-                    Button {
-                        avatarURL = preset.url
-                    } label: {
-                        ZStack(alignment: .bottom) {
-                            RemoteImage(urlString: preset.url, height: 86, cornerRadius: 8)
-                            Text(preset.title)
-                                .font(.system(size: 9, weight: .black))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.6)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 5)
-                                .background(.black.opacity(0.52))
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            if avatarURL == preset.url {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.black, DashboardPalette.gold)
-                                    .padding(5)
+            if !presets.isEmpty {
+                LazyVGrid(columns: avatarColumns, spacing: 9) {
+                    ForEach(presets) { preset in
+                        Button {
+                            avatarURL = preset.url
+                        } label: {
+                            ZStack(alignment: .bottom) {
+                                RemoteImage(urlString: preset.url, height: 86, cornerRadius: 8)
+                                Text(preset.title)
+                                    .font(.system(size: 9, weight: .black))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 5)
+                                    .background(.black.opacity(0.52))
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if avatarURL == preset.url {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.black, DashboardPalette.gold)
+                                        .padding(5)
+                                }
                             }
                         }
+                        .buttonStyle(PressableButtonStyle())
                     }
-                    .buttonStyle(PressableButtonStyle())
                 }
             }
 
@@ -2385,7 +2438,7 @@ private struct DashboardAvatarEditor: View {
                 .buttonStyle(PressableButtonStyle())
             }
 
-            DashboardInputField(label: "或輸入自訂第三方照片網址", placeholder: "https://example.com/custom-stylist-avatar.jpg", text: $avatarURL)
+            DashboardInputField(label: "或貼上頭像圖片網址", placeholder: "https://example.com/custom-stylist-avatar.jpg", text: $avatarURL)
         }
         .padding(14)
         .background(.white, in: RoundedRectangle(cornerRadius: 14))

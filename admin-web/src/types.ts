@@ -111,6 +111,7 @@ export type Salon = {
   district: string;
   distance: number;
   rating: number;
+  reviews_count: number;
   tags: string[];
   open_hours: string;
   phone: string;

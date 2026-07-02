@@ -138,7 +138,7 @@ final class HairmapStore {
             let previousMessages = messages
             let activeBlockedUserIDs = isLocalExperience ? blockedUserIDs : payload.blockedUserIDs
 
-            salons = payload.salons
+            salons = filterBlockedSalonReviews(in: payload.salons, blockedUserIDs: activeBlockedUserIDs)
             salonBrands = payload.salonBrands
             stylists = filterBlockedReviews(in: payload.stylists, blockedUserIDs: activeBlockedUserIDs)
             inspiration = payload.inspiration.filter { !isProfileBlocked($0.authorID, in: activeBlockedUserIDs) }
@@ -1380,6 +1380,61 @@ final class HairmapStore {
         }
     }
 
+    func addSalonReview(salonID: String, reviewerName: String, text: String, stars: Int, reviewPhotoData: Data? = nil) {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty, let idx = salons.firstIndex(where: { $0.id == salonID }) else { return }
+
+        let cleanName = reviewerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let review = ReviewItem(
+            id: "salon_rev_\(Int(Date().timeIntervalSince1970 * 1000))",
+            salonID: salonID,
+            reviewerName: cleanName.isEmpty ? commentDisplayName : cleanName,
+            reviewerAvatar: commentAvatarURL,
+            text: cleanText,
+            stars: max(1, min(5, stars)),
+            timeAgo: "剛剛",
+            reviewPhotoData: reviewPhotoData
+        )
+
+        salons[idx].reviews.insert(review, at: 0)
+        salons[idx].reviewsCount = salons[idx].reviews.count
+        let total = salons[idx].reviews.reduce(0) { $0 + $1.stars }
+        salons[idx].rating = Double(total) / Double(max(1, salons[idx].reviews.count))
+        statusMessage = "沙龍評價已發表"
+
+        Task {
+            guard gateway.isConfigured else { return }
+            guard let session = try? await gateway.currentSession() else {
+                statusMessage = "訪客沙龍評價已保留在本機；登入後可同步到 Supabase"
+                return
+            }
+
+            do {
+                let photoURL: String?
+                if let reviewPhotoData {
+                    photoURL = try await gateway.uploadMedia(data: reviewPhotoData, folder: "reviews", mediaKind: .photo)
+                } else {
+                    photoURL = nil
+                }
+
+                var persistedReview = review
+                persistedReview.reviewerID = session.user.id
+                persistedReview.reviewPhotoURL = photoURL
+                try await gateway.createReview(persistedReview, reviewerID: session.user.id, reviewPhotoURL: photoURL)
+
+                if let salonIndex = salons.firstIndex(where: { $0.id == salonID }),
+                   let reviewIndex = salons[salonIndex].reviews.firstIndex(where: { $0.id == review.id }) {
+                    salons[salonIndex].reviews[reviewIndex].reviewerID = session.user.id
+                    salons[salonIndex].reviews[reviewIndex].reviewPhotoURL = photoURL
+                }
+                await refreshCatalog()
+                statusMessage = "沙龍評價已同步到 Supabase"
+            } catch {
+                statusMessage = "沙龍評價已本地發表，Supabase 同步失敗"
+            }
+        }
+    }
+
     func shareHairLook(_ look: SharedHairLook) {
         sharedLooks.insert(look, at: 0)
         statusMessage = "髮型分享已發佈到靈感頁"
@@ -1901,11 +1956,21 @@ final class HairmapStore {
         sharedLooks.removeAll { isProfileBlocked($0.authorID, in: blockedUserIDs) }
         inspirationComments = filterBlockedComments(inspirationComments, blockedUserIDs: blockedUserIDs)
         stylists = filterBlockedReviews(in: stylists, blockedUserIDs: blockedUserIDs)
+        salons = filterBlockedSalonReviews(in: salons, blockedUserIDs: blockedUserIDs)
     }
 
     private func filterBlockedReviews(in stylists: [Stylist], blockedUserIDs: Set<UUID>) -> [Stylist] {
         stylists.map { stylist in
             var filtered = stylist
+            filtered.reviews.removeAll { isProfileBlocked($0.reviewerID, in: blockedUserIDs) }
+            filtered.reviewsCount = filtered.reviews.count
+            return filtered
+        }
+    }
+
+    private func filterBlockedSalonReviews(in salons: [Salon], blockedUserIDs: Set<UUID>) -> [Salon] {
+        salons.map { salon in
+            var filtered = salon
             filtered.reviews.removeAll { isProfileBlocked($0.reviewerID, in: blockedUserIDs) }
             filtered.reviewsCount = filtered.reviews.count
             return filtered

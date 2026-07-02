@@ -3105,25 +3105,14 @@ struct StylistProfileView: View {
                 .frame(width: HairmapUI.screenWidth, alignment: .leading)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            FloatingCircleButton(systemImage: "message") {
-                store.startChat(stylistID: stylist.id)
-            }
-            .padding(.trailing, 26)
-            .padding(.bottom, 96)
-        }
         .safeAreaInset(edge: .bottom) {
-            if let service = selectedService {
-                StickyBookingBar(
-                    eyebrow: "已選服務",
-                    price: String(format: "$%.2f", Double(service.price)),
-                    buttonTitle: "立即預約",
-                    buttonSystemImage: "calendar"
-                ) {
-                    store.startBooking(stylistID: stylist.id, service: service)
-                }
+            StylistProfileFooter(
+                stylist: stylist,
+                selectedService: selectedService,
+                onMessage: { store.startChat(stylistID: stylist.id) },
+                onBook: { store.startBooking(stylistID: stylist.id, service: selectedService) }
+            )
                 .frame(width: HairmapUI.screenWidth)
-            }
         }
         .onAppear {
             selectedServiceID = selectedServiceID.isEmpty ? (stylist.services.first?.id ?? "") : selectedServiceID
@@ -4131,36 +4120,58 @@ private struct FloatingCircleButton: View {
     }
 }
 
-private struct StickyBookingBar: View {
-    let eyebrow: String
-    let price: String
-    let buttonTitle: String
-    let buttonSystemImage: String
-    let action: () -> Void
+private struct StylistProfileFooter: View {
+    let stylist: Stylist
+    let selectedService: ServiceItem?
+    let onMessage: () -> Void
+    let onBook: () -> Void
+
+    private var price: Int {
+        selectedService?.price ?? stylist.basePrice
+    }
+
+    private var eyebrow: String {
+        selectedService == nil ? "服務起價" : "已選服務"
+    }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(eyebrow)
                     .font(.system(size: 11, weight: .black))
                     .foregroundStyle(.secondary)
-                Text(price)
+                Text("HK$ \(price)")
                     .font(.system(size: 22, weight: .black, design: .monospaced))
                     .foregroundStyle(HairmapUI.ink)
             }
             Spacer()
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    Text(buttonTitle)
-                    Image(systemName: buttonSystemImage)
+            HStack(spacing: 8) {
+                Button(action: onMessage) {
+                    Image(systemName: "message.fill")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(HairmapUI.ink)
+                        .frame(width: 48, height: 48)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(HairmapUI.ink, lineWidth: 1))
                 }
-                .font(.system(size: 14, weight: .black))
-                .foregroundStyle(.black)
-                .frame(width: 146, height: 56)
-                .background(HairmapUI.amberSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.yellow.opacity(0.45), lineWidth: 1))
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("訊息 \(stylist.name)")
+
+                Button(action: onBook) {
+                    HStack(spacing: 7) {
+                        Text("預約")
+                            .font(.system(size: 14, weight: .black))
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 13, weight: .black))
+                    }
+                    .foregroundStyle(.black)
+                    .frame(width: 104, height: 48)
+                    .background(HairmapUI.amber600, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(HairmapUI.ink, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("預約 \(stylist.name)")
             }
-            .buttonStyle(PressableButtonStyle())
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -4296,7 +4307,6 @@ struct SalonProfileView: View {
     private var branchIDs: Set<String> { Set(branches.map(\.id)) }
     private var profileName: String { store.displaySalonName(salon) }
     private var team: [Stylist] { store.stylists.filter { branchIDs.contains($0.salonID) } }
-    private var featuredStylist: Stylist { team.first ?? store.stylist() }
     private var salonWorks: [PortfolioWork] {
         let savedWorks = displayablePortfolioWorks(branches.flatMap { store.salonWorks[$0.id] ?? [] })
         let isSeedSalon = SeedData.salons.contains { $0.id == salon.id }
@@ -4320,7 +4330,12 @@ struct SalonProfileView: View {
             return seen.insert(key).inserted
         }.prefix(5))
     }
-    private var salonReviews: [ReviewItem] { Array(team.flatMap { $0.reviews }.prefix(4)) }
+    private var salonReviews: [ReviewItem] { branches.flatMap { $0.reviews } }
+    private var salonReviewRating: Double {
+        guard !salonReviews.isEmpty else { return salon.rating }
+        let total = salonReviews.reduce(0) { $0 + $1.stars }
+        return Double(total) / Double(salonReviews.count)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4341,7 +4356,7 @@ struct SalonProfileView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     salonHero
 
-                    SalonStatsRow(salon: salon)
+                    SalonStatsRow(salon: salon, rating: salonReviewRating)
                         .frame(width: HairmapUI.contentWidth)
                         .padding(.horizontal, 20)
                         .offset(y: -36)
@@ -4353,14 +4368,12 @@ struct SalonProfileView: View {
                         latestWorksSection
                         selectedServicesSection
                         salonReviewsSection
-                        if !team.isEmpty {
-                            ReviewComposer(
-                                title: "發表您的真實優質評價",
-                                placeholder: "分享您的剪髮、諮詢或環境享受等真實體驗心得...",
-                                buttonTitle: "送出並發佈沙龍評價"
-                            ) { name, stars, text, photoData in
-                                store.addReview(stylistID: featuredStylist.id, reviewerName: name, text: text, stars: stars, reviewPhotoData: photoData)
-                            }
+                        ReviewComposer(
+                            title: "發表您對沙龍的珍貴評價",
+                            placeholder: "分享您在沙龍環境、服務接待、洗剪染護或整體體驗上的心得...",
+                            buttonTitle: "送出並發表此沙龍評價"
+                        ) { name, stars, text, photoData in
+                            store.addSalonReview(salonID: salon.id, reviewerName: name, text: text, stars: stars, reviewPhotoData: photoData)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -4638,16 +4651,13 @@ struct SalonProfileView: View {
     private var salonReviewsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("顧客評價 Reviews")
+                Text("顧客評價")
                     .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(HairmapUI.ink)
                 Spacer()
-                Text("平均 \(String(format: "%.1f", salon.rating)) 星")
-                    .font(.system(size: 12, weight: .black))
+                Text("\(salonReviews.count) 則評價")
+                    .font(.system(size: 13, weight: .black))
                     .foregroundStyle(Color(red: 0.58, green: 0.34, blue: 0.06))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.yellow.opacity(0.1), in: Capsule())
-                    .overlay(Capsule().stroke(Color.yellow.opacity(0.35), lineWidth: 1))
             }
 
             VStack(spacing: 14) {
@@ -4655,12 +4665,12 @@ struct SalonProfileView: View {
                     ReviewRow(
                         review: review,
                         onReport: { review in
-                        reportDraft = ReportDraft(
-                            entityType: .review,
-                            entityID: review.id,
-                            title: "檢舉沙龍評價",
-                            subtitle: review.text
-                        )
+                            reportDraft = ReportDraft(
+                                entityType: .review,
+                                entityID: review.id,
+                                title: "檢舉沙龍評價",
+                                subtitle: review.text
+                            )
                         },
                         onBlock: store.canBlockUser(review.reviewerID) ? { selectedReview in
                             blockReview(selectedReview)
@@ -4687,10 +4697,11 @@ struct SalonProfileView: View {
 
 private struct SalonStatsRow: View {
     let salon: Salon
+    let rating: Double
 
     var body: some View {
         HStack(spacing: 0) {
-            ProfileStat(value: String(format: "%.1f", salon.rating), title: "評分（2 則）", systemImage: "star.fill")
+            ProfileStat(value: String(format: "%.1f", rating), title: "評分", systemImage: "star.fill")
             Divider().frame(height: 44)
             ProfileStat(value: salon.openHours, title: "營業時間", systemImage: "clock")
             Divider().frame(height: 44)

@@ -738,13 +738,19 @@ final class SupabaseGateway {
             hydrated.reviews = reviews.filter { $0.stylistID == stylist.id }
             return hydrated
         }
+        let hydratedSalons = salons.map { salon in
+            var hydrated = salon
+            hydrated.reviews = reviews.filter { $0.salonID == salon.id }
+            hydrated.reviewsCount = max(hydrated.reviewsCount, hydrated.reviews.count)
+            return hydrated
+        }
 
         let salonWorks = Dictionary(grouping: salonWorkRows.map { $0.asPortfolioWork() }, by: \.stylistID)
         let salonServices = Dictionary(grouping: salonServiceRows, by: \.salonID)
 
         return CatalogPayload(
             salonBrands: salonBrands,
-            salons: salons.isEmpty ? SeedData.salons : salons,
+            salons: hydratedSalons.isEmpty ? SeedData.salons : hydratedSalons,
             stylists: stylists.isEmpty ? SeedData.stylists : stylists,
             inspiration: inspiration,
             profiles: profiles,
@@ -822,7 +828,8 @@ final class SupabaseGateway {
         guard let client else { return }
         struct Payload: Encodable {
             let id: String
-            let stylistID: String
+            let stylistID: String?
+            let salonID: String?
             let reviewerID: UUID
             let reviewerName: String
             let reviewerAvatar: String
@@ -836,6 +843,7 @@ final class SupabaseGateway {
             enum CodingKeys: String, CodingKey {
                 case id
                 case stylistID = "stylist_id"
+                case salonID = "salon_id"
                 case reviewerID = "reviewer_id"
                 case reviewerName = "reviewer_name"
                 case reviewerAvatar = "reviewer_avatar"
@@ -848,9 +856,14 @@ final class SupabaseGateway {
             }
         }
 
+        let targetStylistID = review.stylistID.nilIfEmpty
+        let targetSalonID = review.salonID
+        guard (targetStylistID != nil) != (targetSalonID != nil) else { return }
+
         let payload = Payload(
             id: review.id,
-            stylistID: review.stylistID,
+            stylistID: targetStylistID,
+            salonID: targetSalonID,
             reviewerID: reviewerID,
             reviewerName: review.reviewerName,
             reviewerAvatar: review.reviewerAvatar,

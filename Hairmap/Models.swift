@@ -327,6 +327,7 @@ struct Salon: Identifiable, Codable, Hashable {
     var district: String
     var distance: Double
     var rating: Double
+    var reviewsCount: Int
     var tags: [String]
     var openHours: String
     var phone: String
@@ -338,6 +339,7 @@ struct Salon: Identifiable, Codable, Hashable {
     var displayOrder: Int = 100
     var bookingEnabled: Bool = true
     var chatEnabled: Bool = true
+    var reviews: [ReviewItem] = []
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -348,6 +350,7 @@ struct Salon: Identifiable, Codable, Hashable {
         case district
         case distance
         case rating
+        case reviewsCount = "reviews_count"
         case tags
         case openHours = "open_hours"
         case phone
@@ -370,6 +373,7 @@ struct Salon: Identifiable, Codable, Hashable {
         district: String = "",
         distance: Double,
         rating: Double,
+        reviewsCount: Int = 0,
         tags: [String],
         openHours: String,
         phone: String,
@@ -380,7 +384,8 @@ struct Salon: Identifiable, Codable, Hashable {
         isFeatured: Bool = false,
         displayOrder: Int = 100,
         bookingEnabled: Bool = true,
-        chatEnabled: Bool = true
+        chatEnabled: Bool = true,
+        reviews: [ReviewItem] = []
     ) {
         self.id = id
         self.brandID = brandID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -390,6 +395,7 @@ struct Salon: Identifiable, Codable, Hashable {
         self.district = district.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
         self.distance = distance
         self.rating = rating
+        self.reviewsCount = reviewsCount
         self.tags = tags
         self.openHours = openHours
         self.phone = phone
@@ -401,6 +407,7 @@ struct Salon: Identifiable, Codable, Hashable {
         self.displayOrder = displayOrder
         self.bookingEnabled = bookingEnabled
         self.chatEnabled = chatEnabled
+        self.reviews = reviews
     }
 
     init(from decoder: Decoder) throws {
@@ -414,6 +421,7 @@ struct Salon: Identifiable, Codable, Hashable {
         district = decodedDistrict.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
         distance = try container.decode(Double.self, forKey: .distance)
         rating = try container.decode(Double.self, forKey: .rating)
+        reviewsCount = try container.decodeIfPresent(Int.self, forKey: .reviewsCount) ?? 0
         tags = try container.decode([String].self, forKey: .tags)
         openHours = try container.decode(String.self, forKey: .openHours)
         phone = try container.decode(String.self, forKey: .phone)
@@ -425,6 +433,7 @@ struct Salon: Identifiable, Codable, Hashable {
         displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
         bookingEnabled = try container.decodeIfPresent(Bool.self, forKey: .bookingEnabled) ?? true
         chatEnabled = try container.decodeIfPresent(Bool.self, forKey: .chatEnabled) ?? true
+        reviews = []
     }
 
     var displayDistrict: String {
@@ -592,6 +601,7 @@ struct PortfolioWork: Identifiable, Codable, Hashable {
 struct ReviewItem: Identifiable, Codable, Hashable {
     var id: String
     var stylistID: String
+    var salonID: String? = nil
     var reviewerID: UUID? = nil
     var reviewerName: String
     var reviewerAvatar: String
@@ -604,6 +614,7 @@ struct ReviewItem: Identifiable, Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id
         case stylistID = "stylist_id"
+        case salonID = "salon_id"
         case reviewerID = "reviewer_id"
         case reviewerName = "reviewer_name"
         case reviewerAvatar = "reviewer_avatar"
@@ -612,6 +623,62 @@ struct ReviewItem: Identifiable, Codable, Hashable {
         case timeAgo = "time_ago"
         case reviewPhotoData = "review_photo_data"
         case reviewPhotoURL = "review_photo_url"
+    }
+
+    init(
+        id: String,
+        stylistID: String = "",
+        salonID: String? = nil,
+        reviewerID: UUID? = nil,
+        reviewerName: String,
+        reviewerAvatar: String,
+        text: String,
+        stars: Int,
+        timeAgo: String,
+        reviewPhotoData: Data? = nil,
+        reviewPhotoURL: String? = nil
+    ) {
+        self.id = id
+        self.stylistID = stylistID
+        self.salonID = salonID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.reviewerID = reviewerID
+        self.reviewerName = reviewerName
+        self.reviewerAvatar = reviewerAvatar
+        self.text = text
+        self.stars = stars
+        self.timeAgo = timeAgo
+        self.reviewPhotoData = reviewPhotoData
+        self.reviewPhotoURL = reviewPhotoURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        stylistID = try container.decodeIfPresent(String.self, forKey: .stylistID) ?? ""
+        salonID = try container.decodeIfPresent(String.self, forKey: .salonID)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        reviewerID = try container.decodeIfPresent(UUID.self, forKey: .reviewerID)
+        reviewerName = try container.decode(String.self, forKey: .reviewerName)
+        reviewerAvatar = try container.decode(String.self, forKey: .reviewerAvatar)
+        text = try container.decode(String.self, forKey: .text)
+        stars = try container.decode(Int.self, forKey: .stars)
+        timeAgo = try container.decode(String.self, forKey: .timeAgo)
+        reviewPhotoData = try container.decodeIfPresent(Data.self, forKey: .reviewPhotoData)
+        reviewPhotoURL = try container.decodeIfPresent(String.self, forKey: .reviewPhotoURL)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(stylistID.nilIfEmpty, forKey: .stylistID)
+        try container.encodeIfPresent(salonID, forKey: .salonID)
+        try container.encodeIfPresent(reviewerID, forKey: .reviewerID)
+        try container.encode(reviewerName, forKey: .reviewerName)
+        try container.encode(reviewerAvatar, forKey: .reviewerAvatar)
+        try container.encode(text, forKey: .text)
+        try container.encode(stars, forKey: .stars)
+        try container.encode(timeAgo, forKey: .timeAgo)
+        try container.encodeIfPresent(reviewPhotoData, forKey: .reviewPhotoData)
+        try container.encodeIfPresent(reviewPhotoURL, forKey: .reviewPhotoURL)
     }
 }
 

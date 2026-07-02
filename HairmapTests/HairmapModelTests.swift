@@ -100,6 +100,60 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertTrue(stylist.reviews.isEmpty)
     }
 
+    func testSalonDecodingKeepsReviewDefaults() throws {
+        let json = """
+        {
+          "id": "salon-hair-kiss-2ba81bac",
+          "brand_id": "hair-kiss",
+          "branch_name": "尖沙咀分店",
+          "name": "Hair kiss",
+          "location": "尖沙咀彌敦道",
+          "district": "尖沙咀",
+          "distance": 0.8,
+          "rating": 4.9,
+          "tags": ["日韓髮型"],
+          "open_hours": "10:00 - 20:00",
+          "phone": "+852 2345 6789",
+          "instagram_url": "https://instagram.com/hairkiss",
+          "start_price": 278,
+          "image_url": "https://example.com/salon.jpg",
+          "booking_enabled": true,
+          "chat_enabled": true
+        }
+        """.data(using: .utf8)!
+
+        let salon = try JSONDecoder().decode(Salon.self, from: json)
+
+        XCTAssertEqual(salon.id, "salon-hair-kiss-2ba81bac")
+        XCTAssertEqual(salon.reviewsCount, 0)
+        XCTAssertTrue(salon.reviews.isEmpty)
+        XCTAssertTrue(salon.bookingEnabled)
+        XCTAssertTrue(salon.chatEnabled)
+    }
+
+    func testSalonReviewDecodingAllowsSalonTargetWithoutStylist() throws {
+        let json = """
+        {
+          "id": "salon-review-1",
+          "stylist_id": null,
+          "salon_id": "salon-hair-kiss-2ba81bac",
+          "reviewer_name": "Kelvin",
+          "reviewer_avatar": "https://example.com/avatar.jpg",
+          "text": "環境舒服，服務好細心。",
+          "stars": 5,
+          "time_ago": "剛剛",
+          "review_photo_url": "https://example.com/review.jpg"
+        }
+        """.data(using: .utf8)!
+
+        let review = try JSONDecoder().decode(ReviewItem.self, from: json)
+
+        XCTAssertEqual(review.stylistID, "")
+        XCTAssertEqual(review.salonID, "salon-hair-kiss-2ba81bac")
+        XCTAssertEqual(review.stars, 5)
+        XCTAssertEqual(review.reviewPhotoURL, "https://example.com/review.jpg")
+    }
+
     func testInspirationItemDecodingKeepsOptionalFeatureDefaults() throws {
         let json = """
         {

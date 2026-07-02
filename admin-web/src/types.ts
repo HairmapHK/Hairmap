@@ -18,14 +18,38 @@ export type Profile = {
   avatar_url: string;
 };
 
-export type ServiceItem = {
+export type CatalogServiceItem = {
   id: string;
-  stylist_id: string;
   name: string;
   category: string;
   duration: number;
   description: string;
   price: number;
+  is_active?: boolean;
+  display_order?: number;
+};
+
+export type ServiceItem = CatalogServiceItem & {
+  stylist_id: string;
+};
+
+export type SalonServiceItem = CatalogServiceItem & {
+  salon_id: string;
+};
+
+export type SalonBrand = {
+  id: string;
+  name: string;
+  owner_id: string | null;
+  primary_salon_id: string | null;
+  description: string;
+  image_url: string;
+  instagram_url: string;
+  phone: string;
+  is_active: boolean;
+  display_order: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type PortfolioWork = {
@@ -80,6 +104,8 @@ export type Stylist = {
 
 export type Salon = {
   id: string;
+  brand_id: string | null;
+  branch_name: string;
   name: string;
   location: string;
   district: string;
@@ -94,6 +120,8 @@ export type Salon = {
   is_active: boolean;
   is_featured: boolean;
   display_order: number;
+  booking_enabled: boolean;
+  chat_enabled: boolean;
   admin_note?: string;
   created_at?: string;
   updated_at?: string;
@@ -136,6 +164,8 @@ export type SalonApplication = {
   id: string;
   submitted_by: string | null;
   salon_id: string;
+  brand_name: string;
+  branch_name: string;
   name: string;
   location: string;
   district: string;
@@ -148,6 +178,7 @@ export type SalonApplication = {
   start_price: number;
   image_url: string;
   works_payload: PortfolioWork[];
+  services_payload: SalonServiceItem[];
   status: ApplicationStatus;
   admin_note: string;
   reviewed_by: string | null;
@@ -251,6 +282,8 @@ export type AdminData = {
   stylists: Stylist[];
   salons: Salon[];
   services: ServiceItem[];
+  salonBrands: SalonBrand[];
+  salonServices: SalonServiceItem[];
   works: PortfolioWork[];
   salonWorks: SalonWork[];
   stylistApplications: StylistApplication[];

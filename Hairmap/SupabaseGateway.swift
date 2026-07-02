@@ -562,6 +562,13 @@ final class SupabaseGateway {
     func loadCatalog() async throws -> CatalogPayload {
         guard let client else { return SeedData.catalog }
 
+        let salonBrands: [SalonBrand] = (try? await client.from("salon_brands")
+            .select()
+            .eq("is_active", value: true)
+            .order("display_order", ascending: true)
+            .execute()
+            .value) ?? []
+
         let salons: [Salon] = try await client.from("salons")
             .select()
             .eq("is_active", value: true)
@@ -585,6 +592,14 @@ final class SupabaseGateway {
             .order("price", ascending: true)
             .execute()
             .value
+
+        let salonServiceRows: [SalonServiceItem] = (try? await client.from("salon_services")
+            .select()
+            .eq("is_active", value: true)
+            .order("display_order", ascending: true)
+            .order("price", ascending: true)
+            .execute()
+            .value) ?? []
 
         let works: [PortfolioWork] = try await client.from("portfolio_works")
             .select()
@@ -700,6 +715,12 @@ final class SupabaseGateway {
             .execute()
             .value) ?? []
 
+        let salonMessages: [SalonChatMessageItem] = (try? await client.from("salon_chat_messages")
+            .select()
+            .order("created_at", ascending: true)
+            .execute()
+            .value) ?? []
+
         let blockedSlots: [BlockedSlot] = try await client.from("blocked_slots")
             .select()
             .execute()
@@ -719,15 +740,19 @@ final class SupabaseGateway {
         }
 
         let salonWorks = Dictionary(grouping: salonWorkRows.map { $0.asPortfolioWork() }, by: \.stylistID)
+        let salonServices = Dictionary(grouping: salonServiceRows, by: \.salonID)
 
         return CatalogPayload(
+            salonBrands: salonBrands,
             salons: salons.isEmpty ? SeedData.salons : salons,
             stylists: stylists.isEmpty ? SeedData.stylists : stylists,
             inspiration: inspiration,
             profiles: profiles,
             bookings: bookings,
             messages: messages,
+            salonMessages: salonMessages,
             blockedSlots: normalizedBlockedSlots,
+            salonServices: salonServices,
             salonWorks: salonWorks,
             rankingOverrides: rankingOverrides,
             stylistApplications: stylistApplications,
@@ -1053,6 +1078,52 @@ final class SupabaseGateway {
             .execute()
     }
 
+    func salonChatThreadID(customerID: UUID, salonID: String, salonBrandID: String?, subject: String) async throws -> UUID {
+        guard let client else { return UUID() }
+        struct ThreadIDRow: Decodable {
+            let id: UUID
+        }
+        struct ThreadPayload: Encodable {
+            let id: UUID
+            let customerID: UUID
+            let salonID: String
+            let salonBrandID: String?
+            let subject: String
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case customerID = "customer_id"
+                case salonID = "salon_id"
+                case salonBrandID = "salon_brand_id"
+                case subject
+            }
+        }
+
+        let existing: [ThreadIDRow] = try await client.from("salon_chat_threads")
+            .select("id")
+            .eq("customer_id", value: customerID.uuidString)
+            .eq("salon_id", value: salonID)
+            .limit(1)
+            .execute()
+            .value
+        if let id = existing.first?.id {
+            return id
+        }
+
+        let threadID = UUID()
+        try await client.from("salon_chat_threads")
+            .insert(ThreadPayload(id: threadID, customerID: customerID, salonID: salonID, salonBrandID: salonBrandID, subject: subject))
+            .execute()
+        return threadID
+    }
+
+    func insertSalonMessage(_ message: SalonChatMessageItem) async throws {
+        guard let client else { return }
+        try await client.from("salon_chat_messages")
+            .insert(message)
+            .execute()
+    }
+
     func updateBookingStatus(id: UUID, status: BookingStatus) async throws {
         guard let client else { return }
         struct Payload: Encodable { let status: BookingStatus }
@@ -1089,7 +1160,7 @@ final class SupabaseGateway {
         }
     }
 
-    func saveSalon(_ salon: Salon, works: [PortfolioWork]) async throws {
+    func saveSalon(_ salon: Salon, works: [PortfolioWork], services: [SalonServiceItem] = []) async throws {
         guard let client else { return }
         try await client.from("salons")
             .upsert(salon, onConflict: "id")
@@ -1118,6 +1189,16 @@ final class SupabaseGateway {
                 .insert(rows)
                 .execute()
         }
+
+        try await client.from("salon_services")
+            .delete()
+            .eq("salon_id", value: salon.id)
+            .execute()
+        if !services.isEmpty {
+            try await client.from("salon_services")
+                .insert(services)
+                .execute()
+        }
     }
 
     func submitStylistApplication(_ stylist: Stylist) async throws {
@@ -1134,14 +1215,15 @@ final class SupabaseGateway {
             .execute()
     }
 
-    func submitSalonApplication(_ salon: Salon, works: [PortfolioWork]) async throws {
+    func submitSalonApplication(_ salon: Salon, works: [PortfolioWork], services: [SalonServiceItem] = []) async throws {
         guard let client else { return }
         let session = try await client.auth.session
         let application = SalonApplication(
             id: "salon-application-\(salon.id)-\(UUID().uuidString.lowercased())",
             submittedBy: session.user.id,
             salon: salon,
-            works: works
+            works: works,
+            services: services
         )
         try await client.from("salon_applications")
             .insert(application)
@@ -1194,7 +1276,7 @@ final class SupabaseGateway {
 
     func approveSalonApplication(_ application: SalonApplication) async throws {
         let salon = application.asSalon()
-        try await saveSalon(salon, works: application.worksPayload)
+        try await saveSalon(salon, works: application.worksPayload, services: application.servicesPayload)
         try await setSalonApplicationStatus(id: application.id, status: .approved)
     }
 

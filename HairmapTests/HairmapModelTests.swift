@@ -44,6 +44,29 @@ final class HairmapModelTests: XCTestCase {
         XCTAssertNil(missingKey)
     }
 
+    func testStartChatFromStylistProfileSelectsThread() {
+        var selectedTab = CustomerTab.discovery
+        var customerPath: [CustomerRoute] = [.stylist("master-leo")]
+        var selectedStylistID = "master-leo"
+        var chatTargetStylistID: String?
+        var chatTargetSalonID: String? = "salon-hair-kiss-2ba81bac"
+
+        HairmapStore.applyCustomerChatRoute(
+            stylistID: "alex-chen",
+            selectedTab: &selectedTab,
+            customerPath: &customerPath,
+            selectedStylistID: &selectedStylistID,
+            customerChatTargetStylistID: &chatTargetStylistID,
+            customerSalonChatTargetSalonID: &chatTargetSalonID
+        )
+
+        XCTAssertEqual(selectedTab, .chat)
+        XCTAssertEqual(selectedStylistID, "alex-chen")
+        XCTAssertEqual(chatTargetStylistID, "alex-chen")
+        XCTAssertNil(chatTargetSalonID)
+        XCTAssertTrue(customerPath.isEmpty)
+    }
+
     func testStylistDecodingKeepsBackwardsCompatibleDefaults() throws {
         let json = """
         {

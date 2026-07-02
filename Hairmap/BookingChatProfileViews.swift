@@ -8,11 +8,14 @@ struct BookingView: View {
     @Environment(HairmapStore.self) private var store
     @State private var stage: BookingStage = .selectStylist
     @State private var selectedStylistID = "master-leo"
+    @State private var selectedSalonID = ""
     @State private var selectedServiceID = ""
+    @State private var selectedSalonServiceID = ""
     @State private var selectedDate = BookingDate.today()
     @State private var selectedTime = "10:00"
     @State private var clientName = ""
     @State private var clientPhone = ""
+    @State private var salonBookingNote = ""
     @State private var searchText = ""
     @State private var selectedSpecialty = "全部專長"
     @State private var showMonthGrid = false
@@ -28,11 +31,24 @@ struct BookingView: View {
         store.salon(id: stylist.salonID)
     }
 
+    private var selectedSalon: Salon {
+        store.salons.first { $0.id == selectedSalonID } ?? store.salon(id: store.selectedSalonID)
+    }
+
+    private var salonBranches: [Salon] {
+        store.salonBranches(for: selectedSalon)
+    }
+
     private var service: ServiceItem {
         if let picked = stylist.services.first(where: { $0.id == selectedServiceID }) {
             return picked
         }
         return store.selectedService ?? stylist.services.first ?? SeedData.services[0]
+    }
+
+    private var salonService: SalonServiceItem {
+        let services = store.salonServices(for: selectedSalon.id)
+        return services.first { $0.id == selectedSalonServiceID } ?? services[0]
     }
 
     private var selectedDateKey: String {
@@ -91,6 +107,28 @@ struct BookingView: View {
                             isSlotNearlyFull: isSlotNearlyFull,
                             onSubmit: { Task { await submit() } }
                         )
+                    case .salonSchedule:
+                        SalonBookingSchedulePage(
+                            contentWidth: contentWidth,
+                            salon: selectedSalon,
+                            branches: salonBranches,
+                            services: store.salonServices(for: selectedSalon.id),
+                            selectedSalonID: selectedSalonID,
+                            selectedServiceID: selectedSalonServiceID,
+                            selectedDate: selectedDate,
+                            selectedTime: selectedTime,
+                            clientName: $clientName,
+                            clientPhone: $clientPhone,
+                            note: $salonBookingNote,
+                            showMonthGrid: $showMonthGrid,
+                            isSubmitting: isSubmitting,
+                            onBack: { store.selectedTab = .discovery },
+                            onSelectSalon: selectSalonBranch,
+                            onSelectService: selectSalonService,
+                            onSelectDate: selectSalonDate,
+                            onSelectTime: selectSalonTime,
+                            onSubmit: { Task { await submitSalonBooking() } }
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,17 +147,27 @@ struct BookingView: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
-            selectedStylistID = store.selectedStylistID
-            if let service = store.selectedService {
-                selectedServiceID = service.id
-                stage = .schedule
+            if let targetSalonID = store.salonBookingTargetSalonID {
+                selectedSalonID = targetSalonID
+                selectedSalonServiceID = store.salonServices(for: targetSalonID).first?.id ?? ""
+                stage = .salonSchedule
             } else {
-                selectedServiceID = stylist.services.first?.id ?? ""
+                selectedStylistID = store.selectedStylistID
+                if let service = store.selectedService {
+                    selectedServiceID = service.id
+                    stage = .schedule
+                } else {
+                    selectedServiceID = stylist.services.first?.id ?? ""
+                    stage = .selectStylist
+                }
             }
             selectedTime = firstAvailableTime() ?? selectedTime
         }
         .task {
             await store.refreshCatalog()
+            if stage == .salonSchedule, selectedSalonServiceID.isEmpty {
+                selectedSalonServiceID = store.salonServices(for: selectedSalon.id).first?.id ?? ""
+            }
             selectedTime = firstAvailableTime() ?? selectedTime
         }
         .animation(.snappy(duration: 0.28), value: stage)
@@ -141,6 +189,16 @@ struct BookingView: View {
         store.selectedService = item
     }
 
+    private func selectSalonBranch(_ item: Salon) {
+        selectedSalonID = item.id
+        store.selectedSalonID = item.id
+        selectedSalonServiceID = store.salonServices(for: item.id).first?.id ?? ""
+    }
+
+    private func selectSalonService(_ item: SalonServiceItem) {
+        selectedSalonServiceID = item.id
+    }
+
     private func selectDate(_ date: Date) {
         selectedDate = date
         if isSlotFull(selectedTime) {
@@ -150,6 +208,14 @@ struct BookingView: View {
 
     private func selectTime(_ time: String) {
         guard !isSlotFull(time) else { return }
+        selectedTime = time
+    }
+
+    private func selectSalonDate(_ date: Date) {
+        selectedDate = date
+    }
+
+    private func selectSalonTime(_ time: String) {
         selectedTime = time
     }
 
@@ -186,8 +252,41 @@ struct BookingView: View {
         日期時間：\(booking.bookingDate) \(booking.timeSlot)
         到店付款：HK$ \(booking.price)
         """
-        await store.sendMessage(text: text, stylistID: booking.stylistID, sender: .customer)
+        if let stylistID = booking.effectiveStylistID {
+            await store.sendMessage(text: text, stylistID: stylistID, sender: .customer)
+        } else {
+            await store.sendSalonMessage(text: text, salonID: booking.salonID)
+        }
         didSendProgress = true
+    }
+
+    private func submitSalonBooking() async {
+        guard !isSubmitting else { return }
+        let cleanName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhone = clientPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneDigits = cleanPhone.filter(\.isNumber)
+        guard !cleanName.isEmpty, phoneDigits.count >= 8 else {
+            store.statusMessage = "請先填寫姓名及有效聯絡電話"
+            return
+        }
+        clientName = cleanName
+        clientPhone = cleanPhone
+        isSubmitting = true
+        defer { isSubmitting = false }
+        let endTime = addMinutes(selectedTime, salonService.duration)
+        let booking = await store.submitSalonBooking(
+            service: salonService,
+            salon: selectedSalon,
+            date: selectedDateKey,
+            startTime: selectedTime,
+            endTime: endTime,
+            clientName: clientName,
+            clientPhone: clientPhone,
+            note: salonBookingNote
+        )
+        store.salonBookingTargetSalonID = nil
+        didSendProgress = false
+        successBooking = booking
     }
 
     private func closeSuccess() {
@@ -208,7 +307,7 @@ struct BookingView: View {
     private func isSlotFull(_ time: String, on date: Date) -> Bool {
         let dateKey = DateFormatter.hmDate.string(from: date)
         let hasActiveBooking = store.bookings.contains { booking in
-            booking.stylistID == selectedStylistID &&
+            booking.effectiveStylistID == selectedStylistID &&
                 booking.bookingDate == dateKey &&
                 booking.startTime.hmTimeKey == time.hmTimeKey &&
                 booking.status != .cancelled &&
@@ -242,6 +341,7 @@ struct BookingView: View {
 private enum BookingStage: Hashable {
     case selectStylist
     case schedule
+    case salonSchedule
 }
 
 private enum BookingDate {
@@ -777,6 +877,251 @@ private struct BookingSchedulePage: View {
     }
 }
 
+private struct SalonBookingSchedulePage: View {
+    let contentWidth: CGFloat
+    let salon: Salon
+    let branches: [Salon]
+    let services: [SalonServiceItem]
+    let selectedSalonID: String
+    let selectedServiceID: String
+    let selectedDate: Date
+    let selectedTime: String
+    @Binding var clientName: String
+    @Binding var clientPhone: String
+    @Binding var note: String
+    @Binding var showMonthGrid: Bool
+    let isSubmitting: Bool
+    let onBack: () -> Void
+    let onSelectSalon: (Salon) -> Void
+    let onSelectService: (SalonServiceItem) -> Void
+    let onSelectDate: (Date) -> Void
+    let onSelectTime: (String) -> Void
+    let onSubmit: () -> Void
+
+    private var selectedService: SalonServiceItem {
+        services.first { $0.id == selectedServiceID } ?? services[0]
+    }
+
+    private var hasValidContact: Bool {
+        let cleanName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneDigits = clientPhone.filter(\.isNumber)
+        return !cleanName.isEmpty && phoneDigits.count >= 8
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BookingTopBar(title: "預約店舖服務", onBack: onBack)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    salonHeader
+                    branchSection
+                    serviceSection
+                    dateSection
+                    timeSection
+                    contactSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 164)
+                .frame(width: contentWidth)
+            }
+            .frame(maxWidth: .infinity)
+            .background(Color(red: 0.985, green: 0.985, blue: 0.98))
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            SalonBookingStickySummary(
+                salon: salon,
+                service: selectedService,
+                date: selectedDate,
+                time: selectedTime,
+                isSubmitting: isSubmitting,
+                canSubmit: hasValidContact,
+                onSubmit: onSubmit
+            )
+        }
+    }
+
+    private var salonHeader: some View {
+        HStack(spacing: 12) {
+            RemoteImage(urlString: salon.imageURL, height: 56, cornerRadius: 12)
+                .frame(width: 56)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(salon.name)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(HMTheme.ink)
+                    .lineLimit(1)
+                Label(salon.displayBranchName, systemImage: "building.2.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text("待店舖確認")
+                .font(.caption2.weight(.black))
+                .foregroundStyle(HMTheme.ink)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(HMTheme.amber, in: Capsule())
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(HMTheme.ink, lineWidth: 1.05))
+    }
+
+    private var branchSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BookingStepTitle(number: "第一步", title: "選擇分店", systemImage: "mappin.and.ellipse")
+            VStack(spacing: 10) {
+                ForEach(branches) { branch in
+                    Button { onSelectSalon(branch) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: branch.id == selectedSalonID ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 18, weight: .black))
+                                .foregroundStyle(branch.id == selectedSalonID ? HMTheme.amber : .secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(branch.displayBranchName)
+                                    .font(.subheadline.weight(.black))
+                                    .foregroundStyle(branch.id == selectedSalonID ? .white : HMTheme.ink)
+                                    .lineLimit(1)
+                                Text(branch.location)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(branch.id == selectedSalonID ? .white.opacity(0.72) : .secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity)
+                        .background(branch.id == selectedSalonID ? HMTheme.ink : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.ink, lineWidth: branch.id == selectedSalonID ? 0 : 1))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+            }
+        }
+    }
+
+    private var serviceSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BookingStepTitle(number: "第二步", title: "選擇店舖服務", trailing: "到店付款")
+            VStack(spacing: 10) {
+                ForEach(services) { service in
+                    SalonBookingServiceOption(
+                        service: service,
+                        isSelected: service.id == selectedService.id,
+                        onSelect: { onSelectService(service) }
+                    )
+                }
+            }
+        }
+    }
+
+    private var dateSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BookingStepTitle(
+                number: "第三步",
+                title: "選擇服務日期",
+                trailing: showMonthGrid ? "收起月曆" : "展開完整日曆",
+                systemImage: "calendar"
+            ) {
+                showMonthGrid.toggle()
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(BookingDate.quickDays(), id: \.self) { date in
+                        BookingDateCell(
+                            date: date,
+                            isSelected: DateFormatter.hmDate.string(from: date) == DateFormatter.hmDate.string(from: selectedDate),
+                            isFull: false,
+                            onSelect: { onSelectDate(date) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+
+            if showMonthGrid {
+                BookingMonthGrid(
+                    selectedDate: selectedDate,
+                    isDateFull: { _ in false },
+                    onSelectDate: onSelectDate
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var timeSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                BookingStepTitle(number: "第四步", title: "選擇預約時段", systemImage: "clock")
+                Spacer()
+                Text("目前選擇：\(selectedTime)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(BookingDate.slotGroups) { group in
+                    BookingTimeSlotGroupView(
+                        group: group,
+                        selectedTime: selectedTime,
+                        isFull: { _ in false },
+                        isNearlyFull: { _ in false },
+                        onSelect: onSelectTime
+                    )
+                }
+            }
+        }
+    }
+
+    private var contactSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            BookingStepTitle(number: "第五步", title: "填寫聯絡資料", systemImage: "person")
+            VStack(spacing: 14) {
+                BookingFormField(
+                    title: "客戶姓名（預約人全名）",
+                    placeholder: "例如：Kelvin Fung",
+                    systemImage: "person",
+                    text: $clientName
+                )
+                BookingFormField(
+                    title: "聯絡電話",
+                    placeholder: "+852 6123 4567",
+                    systemImage: "phone",
+                    keyboard: .phonePad,
+                    text: $clientPhone
+                )
+                BookingFormField(
+                    title: "備註（可選）",
+                    placeholder: "例如：想安排女髮型師 / 需要先染後剪",
+                    systemImage: "text.bubble",
+                    text: $note
+                )
+            }
+            .padding(16)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(HMTheme.ink, lineWidth: 1.05))
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(HMTheme.emerald)
+                Text("這是店舖預約請求，送出後由店舖確認時間並分配合適髮型師。")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(HMTheme.ink.opacity(0.75))
+                    .lineSpacing(2)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(HMTheme.emerald.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.emerald.opacity(0.5), lineWidth: 1))
+        }
+    }
+}
+
 private struct BookingStepTitle: View {
     let number: String
     let title: String
@@ -833,6 +1178,47 @@ private struct BookingServiceOption: View {
                             .background(HMTheme.amber, in: Capsule())
                     }
                     Text("\(service.description)・\(service.duration) 分鐘")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isSelected ? .white.opacity(0.68) : .secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text("HK$  \(service.price)")
+                    .font(.caption.monospacedDigit().weight(.black))
+                    .foregroundStyle(isSelected ? HMTheme.amber : HMTheme.ink)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(isSelected ? HMTheme.ink : Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .foregroundStyle(isSelected ? .white : HMTheme.ink)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.ink, lineWidth: isSelected ? 0 : 1))
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+}
+
+private struct SalonBookingServiceOption: View {
+    let service: SalonServiceItem
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 6) {
+                        Text(service.name)
+                            .font(.subheadline.weight(.black))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                        Text("\(service.duration) 分鐘")
+                            .font(.caption2.monospacedDigit().weight(.black))
+                            .foregroundStyle(isSelected ? HMTheme.ink : .secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(HMTheme.amber, in: Capsule())
+                    }
+                    Text(service.description.isEmpty ? service.category : "\(service.description)・\(service.category)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(isSelected ? .white.opacity(0.68) : .secondary)
                         .lineLimit(1)
@@ -1142,6 +1528,78 @@ private struct BookingStickySummary: View {
     }
 }
 
+private struct SalonBookingStickySummary: View {
+    let salon: Salon
+    let service: SalonServiceItem
+    let date: Date
+    let time: String
+    let isSubmitting: Bool
+    let canSubmit: Bool
+    let onSubmit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("預約服務 / 分店")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(.secondary)
+                    Text("\(service.name) (\(salon.displayBranchName))")
+                        .font(.subheadline.weight(.black))
+                        .foregroundStyle(HMTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("預約時間")
+                        .font(.caption2.weight(.black))
+                        .foregroundStyle(.secondary)
+                    Text("\(BookingDate.displayDateText(date))  \(time)")
+                        .font(.caption.monospacedDigit().weight(.black))
+                        .foregroundStyle(.brown)
+                }
+            }
+
+            HStack {
+                Text("到店付款 / 店舖確認")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("HK$  \(service.price)")
+                    .font(.subheadline.monospacedDigit().weight(.black))
+                    .foregroundStyle(HMTheme.ink)
+            }
+            .padding(12)
+            .background(Color(red: 0.99, green: 0.99, blue: 0.985), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            Button(action: onSubmit) {
+                HStack {
+                    Spacer()
+                    Text(isSubmitting ? "送出中..." : (canSubmit ? "送出店舖預約請求" : "請先填寫聯絡資料"))
+                        .font(.callout.weight(.black))
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.black))
+                    Spacer()
+                }
+                .foregroundStyle(HMTheme.ink)
+                .frame(height: 52)
+                .background(canSubmit ? HMTheme.amber : Color.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .shadow(color: (canSubmit ? HMTheme.amber.opacity(0.28) : .clear), radius: 10, y: 5)
+            }
+            .buttonStyle(PressableButtonStyle())
+            .disabled(isSubmitting || !canSubmit)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(Color.white)
+        .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
+    }
+}
+
 private struct BookingSuccessOverlay: View {
     let booking: Appointment
     let contentWidth: CGFloat
@@ -1229,7 +1687,9 @@ struct ChatView: View {
     @Environment(HairmapStore.self) private var store
     @State private var stage: ConsultationStage = .inbox
     @State private var selectedStylistID = "master-leo"
+    @State private var selectedSalonChatID = ""
     @State private var draft = ""
+    @State private var salonDraft = ""
     @State private var reportDraft: ReportDraft?
 
     private var thread: [ChatMessageItem] {
@@ -1239,9 +1699,54 @@ struct ChatView: View {
     }
 
     private var conversationStylists: [Stylist] {
-        let contactedIDs = Set(store.customerMessages.map(\.stylistID))
-        return store.stylists.filter { contactedIDs.contains($0.id) }.sorted {
-            (lastMessage(for: $0.id)?.sortKey ?? 0) > (lastMessage(for: $1.id)?.sortKey ?? 0)
+        var visibleIDs = Set(store.customerMessages.map(\.stylistID))
+        if stage == .chat {
+            visibleIDs.insert(selectedStylistID)
+        }
+        if let requestedID = store.customerChatTargetStylistID {
+            visibleIDs.insert(requestedID)
+        }
+
+        return store.stylists.filter { visibleIDs.contains($0.id) }.sorted { lhs, rhs in
+            let lhsSortKey = lastMessage(for: lhs.id)?.sortKey ?? 0
+            let rhsSortKey = lastMessage(for: rhs.id)?.sortKey ?? 0
+            if lhsSortKey != rhsSortKey {
+                return lhsSortKey > rhsSortKey
+            }
+            if lhs.id == selectedStylistID {
+                return true
+            }
+            if rhs.id == selectedStylistID {
+                return false
+            }
+            return lhs.name < rhs.name
+        }
+    }
+
+    private var salonThread: [SalonChatMessageItem] {
+        store.salonMessages
+            .filter { $0.salonID == selectedSalonChatID }
+            .sorted { $0.sortKey < $1.sortKey }
+    }
+
+    private var conversationSalons: [Salon] {
+        var visibleIDs = Set(store.salonMessages.map(\.salonID))
+        if stage == .salonChat, !selectedSalonChatID.isEmpty {
+            visibleIDs.insert(selectedSalonChatID)
+        }
+        if let requestedID = store.customerSalonChatTargetSalonID {
+            visibleIDs.insert(requestedID)
+        }
+
+        return store.salons.filter { visibleIDs.contains($0.id) }.sorted { lhs, rhs in
+            let lhsSortKey = lastSalonMessage(for: lhs.id)?.sortKey ?? 0
+            let rhsSortKey = lastSalonMessage(for: rhs.id)?.sortKey ?? 0
+            if lhsSortKey != rhsSortKey {
+                return lhsSortKey > rhsSortKey
+            }
+            if lhs.id == selectedSalonChatID { return true }
+            if rhs.id == selectedSalonChatID { return false }
+            return lhs.displayBranchName < rhs.displayBranchName
         }
     }
 
@@ -1274,10 +1779,13 @@ struct ChatView: View {
                         contentWidth: contentWidth,
                         stylists: conversationStylists,
                         salons: store.salons,
+                        salonThreads: conversationSalons,
                         unreadStylistIDs: unreadStylistIDs,
                         lastMessage: lastMessage(for:),
+                        lastSalonMessage: lastSalonMessage(for:),
                         onBack: { store.selectedTab = .discovery },
-                        onSelect: openThread
+                        onSelect: openThread,
+                        onSelectSalon: openSalonThread
                     )
                 case .chat:
                     OneOnOneChatPage(
@@ -1297,12 +1805,32 @@ struct ChatView: View {
                         onReport: reportMessage,
                         onToggleBlock: toggleBlock
                     )
+                case .salonChat:
+                    SalonChatPage(
+                        contentWidth: contentWidth,
+                        salon: store.salon(id: selectedSalonChatID),
+                        messages: salonThread,
+                        draft: $salonDraft,
+                        onBack: { stage = .inbox },
+                        onSend: sendSalonDraft,
+                        onBook: { store.startSalonBooking(salonID: selectedSalonChatID) }
+                    )
                 }
             }
         }
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
-            selectedStylistID = store.selectedStylistID
+            syncRequestedThread()
+        }
+        .onChange(of: store.customerChatTargetStylistID) { _, requestedID in
+            guard let requestedID else { return }
+            openThread(requestedID)
+            store.customerChatTargetStylistID = nil
+        }
+        .onChange(of: store.customerSalonChatTargetSalonID) { _, requestedID in
+            guard let requestedID else { return }
+            openSalonThread(requestedID)
+            store.customerSalonChatTargetSalonID = nil
         }
         .animation(.snappy(duration: 0.28), value: stage)
         .animation(.snappy(duration: 0.24), value: unreadStylistIDs)
@@ -1320,11 +1848,35 @@ struct ChatView: View {
             .max { $0.sortKey < $1.sortKey }
     }
 
+    private func lastSalonMessage(for salonID: String) -> SalonChatMessageItem? {
+        store.salonMessages
+            .filter { $0.salonID == salonID }
+            .max { $0.sortKey < $1.sortKey }
+    }
+
     private func openThread(_ stylistID: String) {
         selectedStylistID = stylistID
         store.selectedStylistID = stylistID
         store.markCustomerThreadRead(stylistID: stylistID)
         stage = .chat
+    }
+
+    private func openSalonThread(_ salonID: String) {
+        selectedSalonChatID = salonID
+        store.selectedSalonID = salonID
+        stage = .salonChat
+    }
+
+    private func syncRequestedThread() {
+        if let requestedID = store.customerSalonChatTargetSalonID {
+            openSalonThread(requestedID)
+            store.customerSalonChatTargetSalonID = nil
+        } else if let requestedID = store.customerChatTargetStylistID {
+            openThread(requestedID)
+            store.customerChatTargetStylistID = nil
+        } else {
+            selectedStylistID = store.selectedStylistID
+        }
     }
 
     private func sendDraft() {
@@ -1333,6 +1885,13 @@ struct ChatView: View {
         guard !sending.isEmpty else { return }
         draft = ""
         Task { await store.sendMessage(text: sending, stylistID: selectedStylistID) }
+    }
+
+    private func sendSalonDraft() {
+        let sending = salonDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sending.isEmpty, !selectedSalonChatID.isEmpty else { return }
+        salonDraft = ""
+        Task { await store.sendSalonMessage(text: sending, salonID: selectedSalonChatID) }
     }
 
     private func sendPhoto(_ item: PhotosPickerItem?) {
@@ -1370,16 +1929,20 @@ struct ChatView: View {
 private enum ConsultationStage: Hashable {
     case inbox
     case chat
+    case salonChat
 }
 
 private struct ConsultationInboxPage: View {
     let contentWidth: CGFloat
     let stylists: [Stylist]
     let salons: [Salon]
+    let salonThreads: [Salon]
     let unreadStylistIDs: Set<String>
     let lastMessage: (String) -> ChatMessageItem?
+    let lastSalonMessage: (String) -> SalonChatMessageItem?
     let onBack: () -> Void
     let onSelect: (String) -> Void
+    let onSelectSalon: (String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1399,7 +1962,7 @@ private struct ConsultationInboxPage: View {
                     Image(systemName: "person.2.fill")
                         .font(.system(size: 13, weight: .black))
                         .foregroundStyle(HMTheme.amber)
-                    Text("髮型師諮詢對話盒 (INBOX)")
+                    Text("髮型師 / 店舖查詢 INBOX")
                         .font(.system(size: 13, weight: .black))
                         .foregroundStyle(HMTheme.ink)
                         .lineLimit(1)
@@ -1438,7 +2001,7 @@ private struct ConsultationInboxPage: View {
                             .overlay(Capsule().stroke(HMTheme.ink, lineWidth: 1))
                         }
 
-                        Text("您在此處可以與為您服務過的設計師安全、即時在線聊天，無需跳轉 WhatsApp、LINE 或其他軟體。")
+                        Text("您在此處可以與設計師或店舖安全、即時在線聊天，無需跳轉 WhatsApp、LINE 或其他軟體。")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .lineSpacing(3)
@@ -1446,6 +2009,14 @@ private struct ConsultationInboxPage: View {
                     .padding(.top, 8)
 
                     VStack(spacing: 14) {
+                        ForEach(salonThreads) { salon in
+                            SalonConsultationThreadCard(
+                                salon: salon,
+                                message: lastSalonMessage(salon.id),
+                                onTap: { onSelectSalon(salon.id) }
+                            )
+                        }
+
                         ForEach(stylists) { stylist in
                             ConsultationThreadCard(
                                 stylist: stylist,
@@ -1473,6 +2044,74 @@ private struct ConsultationInboxPage: View {
                 .background(Color.white)
                 .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
         }
+    }
+}
+
+private struct SalonConsultationThreadCard: View {
+    let salon: Salon
+    let message: SalonChatMessageItem?
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 13) {
+                RemoteImage(urlString: salon.imageURL, height: 58, cornerRadius: 13)
+                    .frame(width: 58)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "building.2.fill")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(.black)
+                            .frame(width: 20, height: 20)
+                            .background(HMTheme.amber, in: Circle())
+                            .overlay(Circle().stroke(.white, lineWidth: 1.4))
+                    }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Text(salon.name)
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(HMTheme.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                        Text("店舖查詢")
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Text(message?.displayText ?? "尚未開始店舖查詢，點擊直接訊息分店。")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(HMTheme.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    Text(salon.displayBranchName)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 0.965, green: 0.965, blue: 0.965), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
+
+                Spacer(minLength: 6)
+
+                VStack(alignment: .trailing, spacing: 18) {
+                    Text(message?.displayTime ?? "剛剛")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 118)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(HMTheme.ink, lineWidth: 1.05))
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("開啟 \(salon.name) 店舖查詢")
     }
 }
 
@@ -1569,6 +2208,149 @@ private struct ConsultationThreadCard: View {
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel("開啟 \(stylist.name) 一對一對話")
+    }
+}
+
+private struct SalonChatPage: View {
+    let contentWidth: CGFloat
+    let salon: Salon
+    let messages: [SalonChatMessageItem]
+    @Binding var draft: String
+    let onBack: () -> Void
+    let onSend: () -> Void
+    let onBook: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 14) {
+                    if messages.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("店舖查詢", systemImage: "building.2.fill")
+                                .font(.headline.weight(.black))
+                            Text("您可以直接查詢分店位置、服務價錢、可預約時間或髮型師安排。")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(3)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(HMTheme.ink, lineWidth: 1))
+                    }
+
+                    ForEach(messages) { message in
+                        SalonChatBubble(message: message)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 104)
+                .frame(width: contentWidth)
+            }
+            .frame(maxWidth: .infinity)
+            .background(Color(red: 0.985, green: 0.985, blue: 0.98))
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            composer
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(HMTheme.ink)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white, in: Circle())
+            }
+            .buttonStyle(PressableButtonStyle())
+
+            RemoteImage(urlString: salon.imageURL, height: 46, cornerRadius: 12)
+                .frame(width: 46)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(salon.name)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(HMTheme.ink)
+                    .lineLimit(1)
+                Text(salon.displayBranchName)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: onBook) {
+                Image(systemName: "calendar.badge.plus")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(.black)
+                    .frame(width: 42, height: 42)
+                    .background(HMTheme.amber, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(HMTheme.ink, lineWidth: 1))
+            }
+            .buttonStyle(PressableButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 74)
+        .background(Color.white.ignoresSafeArea(edges: .top))
+        .overlay(alignment: .bottom) { Rectangle().fill(.black).frame(height: 1) }
+    }
+
+    private var composer: some View {
+        HStack(spacing: 10) {
+            TextField("輸入店舖查詢...", text: $draft, axis: .vertical)
+                .lineLimit(1...4)
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 13)
+                .padding(.vertical, 11)
+                .background(Color(red: 0.96, green: 0.96, blue: 0.95), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.12), lineWidth: 1))
+
+            Button(action: onSend) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(.black)
+                    .frame(width: 46, height: 46)
+                    .background(HMTheme.amber, in: Circle())
+                    .overlay(Circle().stroke(HMTheme.ink, lineWidth: 1))
+            }
+            .buttonStyle(PressableButtonStyle())
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white)
+        .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
+    }
+}
+
+private struct SalonChatBubble: View {
+    let message: SalonChatMessageItem
+
+    private var isCustomer: Bool { message.senderRole == .customer }
+
+    var body: some View {
+        HStack(alignment: .bottom) {
+            if isCustomer { Spacer(minLength: 54) }
+            VStack(alignment: isCustomer ? .trailing : .leading, spacing: 5) {
+                Text(message.displayText)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isCustomer ? .black : HMTheme.ink)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 10)
+                    .background(isCustomer ? HMTheme.amber : Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(isCustomer ? HMTheme.ink.opacity(0.18) : .black.opacity(0.08), lineWidth: 1))
+                Text(message.displayTime)
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            if !isCustomer { Spacer(minLength: 54) }
+        }
     }
 }
 
@@ -3248,12 +4030,12 @@ private struct ProfileBookingCard: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("\(store.salon(id: booking.salonID).location) - \(booking.salonName)")
+                    Text("\(booking.branchName.isEmpty ? store.salon(id: booking.salonID).displayBranchName : booking.branchName) - \(booking.salonName)")
                         .font(.subheadline.weight(.black))
                         .foregroundStyle(HMTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
-                    Label("專屬髮型師: \(booking.stylistName)", systemImage: "sparkle")
+                    Label(booking.isSalonAssignedBooking ? "店舖安排髮型師" : "專屬髮型師: \(booking.stylistName)", systemImage: "sparkle")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -3300,9 +4082,13 @@ private struct ProfileBookingCard: View {
 
             HStack(spacing: 10) {
                 Button {
-                    let stylist = store.stylist(id: booking.stylistID)
-                    let service = stylist.services.first { $0.id == booking.serviceID || $0.name == booking.serviceName }
-                    store.startBooking(stylistID: booking.stylistID, service: service)
+                    if let stylistID = booking.effectiveStylistID {
+                        let stylist = store.stylist(id: stylistID)
+                        let service = stylist.services.first { $0.id == booking.serviceID || $0.name == booking.serviceName }
+                        store.startBooking(stylistID: stylistID, service: service)
+                    } else {
+                        store.startSalonBooking(salonID: booking.salonID)
+                    }
                 } label: {
                     Text("變更預約")
                         .font(.caption.weight(.black))

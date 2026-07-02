@@ -162,6 +162,10 @@ struct DiscoveryView: View {
     }
 
     private var filteredSalons: [Salon] {
+        representativeSalons(from: filteredSalonBranches)
+    }
+
+    private var filteredSalonBranches: [Salon] {
         store.salons.filter { salon in
             let text = [salon.name, salon.district, salon.location, salon.tags.joined(separator: " ")].joined(separator: " ")
             let searchMatches = searchText.isEmpty || text.localizedCaseInsensitiveContains(searchText)
@@ -170,6 +174,14 @@ struct DiscoveryView: View {
             let ratingMatches = selectedRating == nil || salon.rating >= (selectedRating ?? 0)
             let priceMatches = matchesPriceRange(salon.startPrice)
             return searchMatches && districtMatches && styleMatches && ratingMatches && priceMatches
+        }
+    }
+
+    private func representativeSalons(from salons: [Salon]) -> [Salon] {
+        var seenKeys = Set<String>()
+        return salons.filter { salon in
+            let key = salon.brandID ?? salon.id
+            return seenKeys.insert(key).inserted
         }
     }
 
@@ -3095,8 +3107,7 @@ struct StylistProfileView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             FloatingCircleButton(systemImage: "message") {
-                store.selectedTab = .chat
-                store.customerPath = []
+                store.startChat(stylistID: stylist.id)
             }
             .padding(.trailing, 26)
             .padding(.bottom, 96)
@@ -4161,6 +4172,9 @@ private struct StickyBookingBar: View {
 
 private struct SalonProfileFooter: View {
     let salon: Salon
+    let displayName: String
+    let onMessage: () -> Void
+    let onBook: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -4173,20 +4187,99 @@ private struct SalonProfileFooter: View {
                     .foregroundStyle(HairmapUI.ink)
             }
             Spacer()
-            Text("歡迎電話諮詢或細看設計師檔案")
-                .font(.system(size: 12, weight: .black))
-                .foregroundStyle(Color(red: 0.56, green: 0.35, blue: 0.08))
-                .lineLimit(2)
-                .multilineTextAlignment(.trailing)
-                .padding(.horizontal, 12)
-                .frame(width: 174, height: 48)
-                .background(Color.yellow.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            HStack(spacing: 8) {
+                Button(action: onMessage) {
+                    Image(systemName: "message.fill")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(HairmapUI.ink)
+                        .frame(width: 48, height: 48)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(HairmapUI.ink, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("訊息 \(displayName)")
+
+                Button(action: onBook) {
+                    HStack(spacing: 7) {
+                        Text("預約")
+                            .font(.system(size: 14, weight: .black))
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 13, weight: .black))
+                    }
+                    .foregroundStyle(.black)
+                    .frame(width: 104, height: 48)
+                    .background(HairmapUI.amber600, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(HairmapUI.ink, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("預約 \(displayName)")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 10)
         .frame(width: HairmapUI.screenWidth)
         .background(.white)
+    }
+}
+
+private struct SalonBranchRow: View {
+    let salon: Salon
+    let isPrimary: Bool
+    let onMessage: () -> Void
+    let onBook: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(salon.displayBranchName)
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(HairmapUI.ink)
+                        .lineLimit(1)
+                    if isPrimary {
+                        Text("目前檢視")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(HairmapUI.amber600, in: Capsule())
+                    }
+                }
+                Text(salon.location)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Text(salon.phone.isEmpty ? "未提供電話" : salon.phone)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(red: 0.48, green: 0.32, blue: 0.08))
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                Button(action: onMessage) {
+                    Image(systemName: "message")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(HairmapUI.ink)
+                        .frame(width: 40, height: 40)
+                        .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(HairmapUI.line, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+
+                Button(action: onBook) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.black)
+                        .frame(width: 40, height: 40)
+                        .background(HairmapUI.amber600, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(HairmapUI.ink, lineWidth: 1))
+                }
+                .buttonStyle(PressableButtonStyle())
+            }
+        }
+        .padding(14)
+        .background(.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(HairmapUI.line, lineWidth: 1))
     }
 }
 
@@ -4199,22 +4292,34 @@ struct SalonProfileView: View {
     @State private var reportDraft: ReportDraft?
 
     private var salon: Salon { store.salon(id: salonID) }
-    private var team: [Stylist] { store.stylists.filter { $0.salonID == salonID } }
+    private var branches: [Salon] { store.salonBranches(for: salon) }
+    private var branchIDs: Set<String> { Set(branches.map(\.id)) }
+    private var profileName: String { store.displaySalonName(salon) }
+    private var team: [Stylist] { store.stylists.filter { branchIDs.contains($0.salonID) } }
     private var featuredStylist: Stylist { team.first ?? store.stylist() }
     private var salonWorks: [PortfolioWork] {
-        let savedWorks = displayablePortfolioWorks(store.salonWorks[salonID] ?? [])
+        let savedWorks = displayablePortfolioWorks(branches.flatMap { store.salonWorks[$0.id] ?? [] })
         let isSeedSalon = SeedData.salons.contains { $0.id == salon.id }
-        let expandedWorks = expandedSalonWorks(
-            salon: salon,
-            team: team,
-            inspiration: store.inspiration,
-            sharedLooks: store.sharedLooks,
-            allowDemoFallback: isSeedSalon
-        )
+        let expandedWorks = branches.flatMap { branch in
+            expandedSalonWorks(
+                salon: branch,
+                team: team.filter { $0.salonID == branch.id },
+                inspiration: store.inspiration,
+                sharedLooks: store.sharedLooks,
+                allowDemoFallback: isSeedSalon && branch.id == salon.id
+            )
+        }
         var seen = Set(savedWorks.map(\.imageURL))
         return displayablePortfolioWorks(savedWorks + expandedWorks.filter { seen.insert($0.imageURL).inserted }, limit: 9)
     }
-    private var salonServices: [ServiceItem] { Array(team.flatMap { $0.services }.prefix(3)) }
+    private var salonServices: [SalonServiceItem] {
+        let branchServices = branches.flatMap { store.salonServices(for: $0.id) }
+        var seen = Set<String>()
+        return Array(branchServices.filter { service in
+            let key = "\(service.name)-\(service.price)"
+            return seen.insert(key).inserted
+        }.prefix(5))
+    }
     private var salonReviews: [ReviewItem] { Array(team.flatMap { $0.reviews }.prefix(4)) }
 
     var body: some View {
@@ -4243,16 +4348,19 @@ struct SalonProfileView: View {
 
                     VStack(alignment: .leading, spacing: 28) {
                         salonInfo
+                        branchSection
                         teamSection
                         latestWorksSection
                         selectedServicesSection
                         salonReviewsSection
-                        ReviewComposer(
-                            title: "發表您的真實優質評價",
-                            placeholder: "分享您的剪髮、諮詢或環境享受等真實體驗心得...",
-                            buttonTitle: "送出並發佈沙龍評價"
-                        ) { name, stars, text, photoData in
-                            store.addReview(stylistID: featuredStylist.id, reviewerName: name, text: text, stars: stars, reviewPhotoData: photoData)
+                        if !team.isEmpty {
+                            ReviewComposer(
+                                title: "發表您的真實優質評價",
+                                placeholder: "分享您的剪髮、諮詢或環境享受等真實體驗心得...",
+                                buttonTitle: "送出並發佈沙龍評價"
+                            ) { name, stars, text, photoData in
+                                store.addReview(stylistID: featuredStylist.id, reviewerName: name, text: text, stars: stars, reviewPhotoData: photoData)
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -4269,7 +4377,12 @@ struct SalonProfileView: View {
                 .padding(.bottom, 98)
         }
         .safeAreaInset(edge: .bottom) {
-            SalonProfileFooter(salon: salon)
+            SalonProfileFooter(
+                salon: salon,
+                displayName: profileName,
+                onMessage: { store.startSalonChat(salonID: salon.id) },
+                onBook: { store.startSalonBooking(salonID: salon.id) }
+            )
                 .frame(width: HairmapUI.screenWidth)
         }
         .fullScreenCover(item: $selectedGallery) { gallery in
@@ -4325,7 +4438,7 @@ struct SalonProfileView: View {
                             .foregroundStyle(.black)
                     }
                 }
-                Text(salon.name)
+                Text(profileName)
                     .font(.system(size: 26, weight: .black))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -4347,7 +4460,7 @@ struct SalonProfileView: View {
             Text("沙龍優勢與特徵 Info")
                 .font(.system(size: 20, weight: .black))
             VStack(alignment: .leading, spacing: 12) {
-                Text("歡迎光臨 \(salon.name)！我們店內空間皆經過精緻設計，為每位尊貴顧客提供舒壓的洗浴、按摩及造型時光。全店均採用日本及義大利進口頂級有機染護專利產品。")
+                Text("歡迎光臨 \(profileName)！我們店內空間皆經過精緻設計，為每位尊貴顧客提供舒壓的洗浴、按摩及造型時光。全店均採用日本及義大利進口頂級有機染護專利產品。")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(red: 0.32, green: 0.35, blue: 0.4))
                     .lineSpacing(5)
@@ -4410,6 +4523,34 @@ struct SalonProfileView: View {
             .padding(18)
             .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(HairmapUI.line, lineWidth: 1))
+        }
+    }
+
+    private var branchSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("分店")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(HairmapUI.ink)
+                Spacer()
+                Text("\(branches.count) 間")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundStyle(Color(red: 0.54, green: 0.32, blue: 0.06))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            VStack(spacing: 10) {
+                ForEach(branches) { branch in
+                    SalonBranchRow(
+                        salon: branch,
+                        isPrimary: branch.id == salon.id,
+                        onMessage: { store.startSalonChat(salonID: branch.id) },
+                        onBook: { store.startSalonBooking(salonID: branch.id) }
+                    )
+                }
+            }
         }
     }
 

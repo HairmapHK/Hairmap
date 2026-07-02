@@ -888,7 +888,7 @@ private struct StylistMessagesWorkspace: View {
 
     private func bookings(for threadID: String) -> [Appointment] {
         store.bookings.filter { booking in
-            booking.stylistID == stylistID && booking.customerID?.uuidString == threadID
+            booking.effectiveStylistID == stylistID && booking.customerID?.uuidString == threadID
         }
     }
 }

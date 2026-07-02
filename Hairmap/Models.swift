@@ -80,6 +80,26 @@ enum BookingStatus: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 }
 
+enum BookingAssignmentMode: String, Codable, CaseIterable, Identifiable, Hashable {
+    case stylistSelected = "stylist_selected"
+    case salonAssigns = "salon_assigns"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .stylistSelected: "指定髮型師"
+        case .salonAssigns: "由店舖安排"
+        }
+    }
+}
+
+enum SalonChatSenderRole: String, Codable, Hashable {
+    case customer
+    case salon
+    case admin
+}
+
 struct HairmapProfile: Identifiable, Codable, Hashable {
     var id: UUID
     var displayName: String
@@ -121,6 +141,70 @@ struct HairmapProfile: Identifiable, Codable, Hashable {
         role = try container.decode(UserRole.self, forKey: .role)
         stylistID = try container.decodeIfPresent(String.self, forKey: .stylistID)
         avatarURL = try container.decodeIfPresent(String.self, forKey: .avatarURL) ?? ""
+    }
+}
+
+struct SalonBrand: Identifiable, Codable, Hashable {
+    var id: String
+    var name: String
+    var ownerID: UUID?
+    var primarySalonID: String
+    var description: String
+    var imageURL: String
+    var instagramURL: String
+    var phone: String
+    var isActive: Bool
+    var displayOrder: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case ownerID = "owner_id"
+        case primarySalonID = "primary_salon_id"
+        case description
+        case imageURL = "image_url"
+        case instagramURL = "instagram_url"
+        case phone
+        case isActive = "is_active"
+        case displayOrder = "display_order"
+    }
+
+    init(
+        id: String,
+        name: String,
+        ownerID: UUID? = nil,
+        primarySalonID: String = "",
+        description: String = "",
+        imageURL: String = "",
+        instagramURL: String = "",
+        phone: String = "",
+        isActive: Bool = true,
+        displayOrder: Int = 100
+    ) {
+        self.id = id
+        self.name = name
+        self.ownerID = ownerID
+        self.primarySalonID = primarySalonID
+        self.description = description
+        self.imageURL = imageURL
+        self.instagramURL = instagramURL
+        self.phone = phone
+        self.isActive = isActive
+        self.displayOrder = displayOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        ownerID = try container.decodeIfPresent(UUID.self, forKey: .ownerID)
+        primarySalonID = try container.decodeIfPresent(String.self, forKey: .primarySalonID) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        imageURL = try container.decodeIfPresent(String.self, forKey: .imageURL) ?? ""
+        instagramURL = try container.decodeIfPresent(String.self, forKey: .instagramURL) ?? ""
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
     }
 }
 
@@ -236,6 +320,8 @@ enum HairmapExternalLinks {
 
 struct Salon: Identifiable, Codable, Hashable {
     var id: String
+    var brandID: String?
+    var branchName: String
     var name: String
     var location: String
     var district: String
@@ -250,9 +336,13 @@ struct Salon: Identifiable, Codable, Hashable {
     var isActive: Bool = true
     var isFeatured: Bool = false
     var displayOrder: Int = 100
+    var bookingEnabled: Bool = true
+    var chatEnabled: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case id
+        case brandID = "brand_id"
+        case branchName = "branch_name"
         case name
         case location
         case district
@@ -267,10 +357,14 @@ struct Salon: Identifiable, Codable, Hashable {
         case isActive = "is_active"
         case isFeatured = "is_featured"
         case displayOrder = "display_order"
+        case bookingEnabled = "booking_enabled"
+        case chatEnabled = "chat_enabled"
     }
 
     init(
         id: String,
+        brandID: String? = nil,
+        branchName: String = "",
         name: String,
         location: String,
         district: String = "",
@@ -284,9 +378,13 @@ struct Salon: Identifiable, Codable, Hashable {
         imageURL: String,
         isActive: Bool = true,
         isFeatured: Bool = false,
-        displayOrder: Int = 100
+        displayOrder: Int = 100,
+        bookingEnabled: Bool = true,
+        chatEnabled: Bool = true
     ) {
         self.id = id
+        self.brandID = brandID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.branchName = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.name = name
         self.location = location
         self.district = district.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? HairmapDistricts.inferredDistrict(from: location)
@@ -301,11 +399,15 @@ struct Salon: Identifiable, Codable, Hashable {
         self.isActive = isActive
         self.isFeatured = isFeatured
         self.displayOrder = displayOrder
+        self.bookingEnabled = bookingEnabled
+        self.chatEnabled = chatEnabled
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
+        brandID = try container.decodeIfPresent(String.self, forKey: .brandID)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        branchName = try container.decodeIfPresent(String.self, forKey: .branchName) ?? ""
         name = try container.decode(String.self, forKey: .name)
         location = try container.decode(String.self, forKey: .location)
         let decodedDistrict = try container.decodeIfPresent(String.self, forKey: .district) ?? ""
@@ -321,6 +423,8 @@ struct Salon: Identifiable, Codable, Hashable {
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         isFeatured = try container.decodeIfPresent(Bool.self, forKey: .isFeatured) ?? false
         displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
+        bookingEnabled = try container.decodeIfPresent(Bool.self, forKey: .bookingEnabled) ?? true
+        chatEnabled = try container.decodeIfPresent(Bool.self, forKey: .chatEnabled) ?? true
     }
 
     var displayDistrict: String {
@@ -329,6 +433,12 @@ struct Salon: Identifiable, Codable, Hashable {
 
     var displayLocation: String {
         HairmapDistricts.displayLocation(district: district, location: location)
+    }
+
+    var displayBranchName: String {
+        let cleanBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanBranch.isEmpty { return cleanBranch }
+        return displayDistrict
     }
 }
 
@@ -349,6 +459,65 @@ struct ServiceItem: Identifiable, Codable, Hashable {
         case duration
         case description
         case price
+    }
+}
+
+struct SalonServiceItem: Identifiable, Codable, Hashable {
+    var id: String
+    var salonID: String
+    var name: String
+    var category: String
+    var duration: Int
+    var description: String
+    var price: Int
+    var isActive: Bool
+    var displayOrder: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case salonID = "salon_id"
+        case name
+        case category
+        case duration
+        case description
+        case price
+        case isActive = "is_active"
+        case displayOrder = "display_order"
+    }
+
+    init(
+        id: String,
+        salonID: String,
+        name: String,
+        category: String,
+        duration: Int,
+        description: String,
+        price: Int,
+        isActive: Bool = true,
+        displayOrder: Int = 100
+    ) {
+        self.id = id
+        self.salonID = salonID
+        self.name = name
+        self.category = category
+        self.duration = duration
+        self.description = description
+        self.price = price
+        self.isActive = isActive
+        self.displayOrder = displayOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        salonID = try container.decode(String.self, forKey: .salonID)
+        name = try container.decode(String.self, forKey: .name)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration) ?? 60
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        price = try container.decodeIfPresent(Int.self, forKey: .price) ?? 0
+        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder) ?? 100
     }
 }
 
@@ -753,6 +922,8 @@ struct SalonApplication: Identifiable, Codable, Hashable {
     var id: String
     var submittedBy: UUID?
     var salonID: String
+    var brandName: String
+    var branchName: String
     var name: String
     var location: String
     var district: String
@@ -765,6 +936,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
     var startPrice: Int
     var imageURL: String
     var worksPayload: [PortfolioWork]
+    var servicesPayload: [SalonServiceItem]
     var status: CatalogApplicationStatus
     var adminNote: String
 
@@ -772,6 +944,8 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         case id
         case submittedBy = "submitted_by"
         case salonID = "salon_id"
+        case brandName = "brand_name"
+        case branchName = "branch_name"
         case name
         case location
         case district
@@ -784,14 +958,17 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         case startPrice = "start_price"
         case imageURL = "image_url"
         case worksPayload = "works_payload"
+        case servicesPayload = "services_payload"
         case status
         case adminNote = "admin_note"
     }
 
-    init(id: String, submittedBy: UUID, salon: Salon, works: [PortfolioWork]) {
+    init(id: String, submittedBy: UUID, salon: Salon, works: [PortfolioWork], services: [SalonServiceItem] = []) {
         self.id = id
         self.submittedBy = submittedBy
         salonID = salon.id
+        brandName = salon.name
+        branchName = salon.branchName
         name = salon.name
         location = salon.location
         district = salon.district
@@ -804,6 +981,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         startPrice = salon.startPrice
         imageURL = salon.imageURL
         worksPayload = works
+        servicesPayload = services
         status = .pending
         adminNote = ""
     }
@@ -811,6 +989,8 @@ struct SalonApplication: Identifiable, Codable, Hashable {
     func asSalon() -> Salon {
         Salon(
             id: salonID,
+            brandID: nil,
+            branchName: branchName,
             name: name,
             location: location,
             district: district,
@@ -824,7 +1004,9 @@ struct SalonApplication: Identifiable, Codable, Hashable {
             imageURL: imageURL,
             isActive: true,
             isFeatured: false,
-            displayOrder: 100
+            displayOrder: 100,
+            bookingEnabled: true,
+            chatEnabled: true
         )
     }
 
@@ -833,6 +1015,8 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         id = try container.decode(String.self, forKey: .id)
         submittedBy = try container.decodeIfPresent(UUID.self, forKey: .submittedBy)
         salonID = try container.decode(String.self, forKey: .salonID)
+        brandName = try container.decodeIfPresent(String.self, forKey: .brandName) ?? ""
+        branchName = try container.decodeIfPresent(String.self, forKey: .branchName) ?? ""
         name = try container.decode(String.self, forKey: .name)
         location = try container.decode(String.self, forKey: .location)
         adminNote = try container.decodeIfPresent(String.self, forKey: .adminNote) ?? ""
@@ -847,6 +1031,7 @@ struct SalonApplication: Identifiable, Codable, Hashable {
         startPrice = try container.decode(Int.self, forKey: .startPrice)
         imageURL = try container.decode(String.self, forKey: .imageURL)
         worksPayload = try container.decodeIfPresent([PortfolioWork].self, forKey: .worksPayload) ?? []
+        servicesPayload = try container.decodeIfPresent([SalonServiceItem].self, forKey: .servicesPayload) ?? []
         status = try container.decodeIfPresent(CatalogApplicationStatus.self, forKey: .status) ?? .pending
     }
 }
@@ -1068,8 +1253,9 @@ struct LookCommentItem: Identifiable, Hashable {
 struct Appointment: Identifiable, Codable, Hashable {
     var id: UUID
     var customerID: UUID?
-    var stylistID: String
+    var stylistID: String?
     var salonID: String
+    var salonBrandID: String?
     var serviceID: String?
     var salonName: String
     var stylistName: String
@@ -1081,12 +1267,17 @@ struct Appointment: Identifiable, Codable, Hashable {
     var serviceName: String
     var price: Int
     var status: BookingStatus
+    var branchName: String
+    var assignmentMode: BookingAssignmentMode
+    var assignedStylistID: String?
+    var bookingNote: String
 
     enum CodingKeys: String, CodingKey {
         case id
         case customerID = "customer_id"
         case stylistID = "stylist_id"
         case salonID = "salon_id"
+        case salonBrandID = "salon_brand_id"
         case serviceID = "service_id"
         case salonName = "salon_name"
         case stylistName = "stylist_name"
@@ -1098,9 +1289,85 @@ struct Appointment: Identifiable, Codable, Hashable {
         case serviceName = "service_name"
         case price
         case status
+        case branchName = "branch_name"
+        case assignmentMode = "assignment_mode"
+        case assignedStylistID = "assigned_stylist_id"
+        case bookingNote = "booking_note"
+    }
+
+    init(
+        id: UUID,
+        customerID: UUID?,
+        stylistID: String?,
+        salonID: String,
+        salonBrandID: String? = nil,
+        serviceID: String?,
+        salonName: String,
+        stylistName: String,
+        clientName: String,
+        clientPhone: String,
+        bookingDate: String,
+        startTime: String,
+        endTime: String,
+        serviceName: String,
+        price: Int,
+        status: BookingStatus,
+        branchName: String = "",
+        assignmentMode: BookingAssignmentMode = .stylistSelected,
+        assignedStylistID: String? = nil,
+        bookingNote: String = ""
+    ) {
+        self.id = id
+        self.customerID = customerID
+        self.stylistID = stylistID
+        self.salonID = salonID
+        self.salonBrandID = salonBrandID
+        self.serviceID = serviceID
+        self.salonName = salonName
+        self.stylistName = stylistName
+        self.clientName = clientName
+        self.clientPhone = clientPhone
+        self.bookingDate = bookingDate
+        self.startTime = startTime
+        self.endTime = endTime
+        self.serviceName = serviceName
+        self.price = price
+        self.status = status
+        self.branchName = branchName
+        self.assignmentMode = assignmentMode
+        self.assignedStylistID = assignedStylistID
+        self.bookingNote = bookingNote
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        customerID = try container.decodeIfPresent(UUID.self, forKey: .customerID)
+        stylistID = try container.decodeIfPresent(String.self, forKey: .stylistID)
+        salonID = try container.decode(String.self, forKey: .salonID)
+        salonBrandID = try container.decodeIfPresent(String.self, forKey: .salonBrandID)
+        serviceID = try container.decodeIfPresent(String.self, forKey: .serviceID)
+        salonName = try container.decode(String.self, forKey: .salonName)
+        stylistName = try container.decode(String.self, forKey: .stylistName)
+        clientName = try container.decode(String.self, forKey: .clientName)
+        clientPhone = try container.decode(String.self, forKey: .clientPhone)
+        bookingDate = try container.decode(String.self, forKey: .bookingDate)
+        startTime = try container.decode(String.self, forKey: .startTime)
+        endTime = try container.decode(String.self, forKey: .endTime)
+        serviceName = try container.decode(String.self, forKey: .serviceName)
+        price = try container.decode(Int.self, forKey: .price)
+        status = try container.decodeIfPresent(BookingStatus.self, forKey: .status) ?? .pending
+        branchName = try container.decodeIfPresent(String.self, forKey: .branchName) ?? ""
+        assignmentMode = try container.decodeIfPresent(BookingAssignmentMode.self, forKey: .assignmentMode) ?? .stylistSelected
+        assignedStylistID = try container.decodeIfPresent(String.self, forKey: .assignedStylistID)
+        bookingNote = try container.decodeIfPresent(String.self, forKey: .bookingNote) ?? ""
     }
 
     var timeSlot: String { "\(startTime) - \(endTime)" }
+
+    var effectiveStylistID: String? { assignedStylistID ?? stylistID }
+
+    var isSalonAssignedBooking: Bool { assignmentMode == .salonAssigns }
 }
 
 struct ChatMessageItem: Identifiable, Codable, Hashable {
@@ -1198,6 +1465,79 @@ struct BlockedSlot: Identifiable, Codable, Hashable {
     }
 }
 
+struct SalonChatMessageItem: Identifiable, Codable, Hashable {
+    var id: String
+    var threadID: UUID
+    var customerID: UUID
+    var salonID: String
+    var salonBrandID: String?
+    var senderRole: SalonChatSenderRole
+    var senderName: String
+    var text: String
+    var sentAt: String
+    var createdAt: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case threadID = "thread_id"
+        case customerID = "customer_id"
+        case salonID = "salon_id"
+        case salonBrandID = "salon_brand_id"
+        case senderRole = "sender_role"
+        case senderName = "sender_name"
+        case text
+        case sentAt = "sent_at"
+        case createdAt = "created_at"
+    }
+
+    var displayText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var displayTime: String {
+        if let date = chronologicalDate, createdAt != nil {
+            return DateFormatter.hmTime.string(from: date)
+        }
+        return sentAt
+    }
+
+    var chronologicalDate: Date? {
+        if let createdAt,
+           let date = Self.iso8601.date(from: createdAt) ?? Self.fractionalISO8601.date(from: createdAt) {
+            return date
+        }
+        if let date = Self.iso8601.date(from: sentAt) ?? Self.fractionalISO8601.date(from: sentAt) {
+            return date
+        }
+        if let timeOnly = DateFormatter.hmTime.date(from: sentAt.hmTimeKey) {
+            let now = Date()
+            let calendar = Calendar.hairmap
+            let timeParts = calendar.dateComponents([.hour, .minute], from: timeOnly)
+            var dayParts = calendar.dateComponents([.year, .month, .day], from: now)
+            dayParts.hour = timeParts.hour
+            dayParts.minute = timeParts.minute
+            return calendar.date(from: dayParts)
+        }
+        return nil
+    }
+
+    var sortKey: TimeInterval {
+        chronologicalDate?.timeIntervalSince1970 ?? 0
+    }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let fractionalISO8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
 struct RankingOverride: Identifiable, Codable, Hashable {
     var id: UUID
     var rankingKey: String
@@ -1219,13 +1559,16 @@ struct RankingOverride: Identifiable, Codable, Hashable {
 }
 
 struct CatalogPayload {
+    var salonBrands: [SalonBrand] = []
     var salons: [Salon]
     var stylists: [Stylist]
     var inspiration: [InspirationItem]
     var profiles: [HairmapProfile] = []
     var bookings: [Appointment]
     var messages: [ChatMessageItem]
+    var salonMessages: [SalonChatMessageItem] = []
     var blockedSlots: [BlockedSlot]
+    var salonServices: [String: [SalonServiceItem]] = [:]
     var salonWorks: [String: [PortfolioWork]] = [:]
     var rankingOverrides: [RankingOverride] = []
     var stylistApplications: [StylistApplication] = []

@@ -54,6 +54,18 @@ type PortfolioWorkPayload = {
   display_order: number;
 };
 
+type SalonServicePayload = {
+  id: string;
+  salon_id: string;
+  name: string;
+  category: string;
+  duration: number;
+  description: string;
+  price: number;
+  is_active: boolean;
+  display_order: number;
+};
+
 type SubmitState =
   | { status: 'idle' }
   | { status: 'submitting'; message: string }
@@ -117,6 +129,8 @@ function App() {
   const [stylistWorks, setStylistWorks] = useState<File[]>([]);
 
   const [salonName, setSalonName] = useState('');
+  const [salonBrandName, setSalonBrandName] = useState('');
+  const [salonBranchName, setSalonBranchName] = useState('');
   const [salonLocation, setSalonLocation] = useState('');
   const [salonDistrict, setSalonDistrict] = useState('油尖旺區');
   const [salonInstagramURL, setSalonInstagramURL] = useState('');
@@ -240,12 +254,17 @@ function App() {
 
     const coverURL = (await uploadFiles('salon-cover', applicationID, salonCover))[0];
     const worksPayload = await uploadPortfolioMedia('salon-works', applicationID, salonID, salonWorks);
+    const servicesPayload = buildSalonServicePayload(salonID, services);
+    const cleanBrandName = salonBrandName.trim() || salonName.trim();
+    const cleanBranchName = salonBranchName.trim() || salonDistrict;
 
     setSubmitState({ status: 'submitting', message: '正在建立沙龍 pending 申請...' });
     const { error } = await supabase.from('salon_applications').insert({
       id: applicationID,
       submitted_by: null,
       salon_id: salonID,
+      brand_name: cleanBrandName,
+      branch_name: cleanBranchName,
       name: salonName.trim(),
       location: salonLocation.trim(),
       district: salonDistrict,
@@ -258,19 +277,22 @@ function App() {
       start_price: toInt(salonStartPrice),
       image_url: coverURL,
       works_payload: worksPayload,
+      services_payload: servicesPayload,
       status: 'pending',
       admin_note: [
         '公開申請網站提交：沙龍',
         `聯絡人：${applicantName}`,
         `Email：${applicantEmail}`,
         `申請人電話：${applicantPhone}`,
+        `品牌名稱：${cleanBrandName}`,
+        `分店名稱：${cleanBranchName}`,
         `沙龍電話：${salonPhone}`,
         `地區：${salonDistrict}`,
         `地址：${salonLocation}`,
         `Instagram：${salonInstagramURL.trim() || '未提供'}`,
         `特色：${salonFeatures.join('、') || '未提供'}`,
         `介紹：${salonIntro}`,
-        `服務：${services.map((item) => `${item.name} HK$${item.price}`).join('；')}`,
+        `服務：${servicesPayload.map((item) => `${item.name} HK$${item.price}`).join('；')}`,
         `作品數量：${worksPayload.length}`,
         `短片數量：${worksPayload.filter((item) => item.media_kind === 'video').length}`,
       ].join('\n'),
@@ -394,6 +416,8 @@ function App() {
             <>
               <Panel title="沙龍檔案" icon={<Building2 size={18} />} note="此區會成為 iOS App 沙龍檔案的主要內容。">
                 <div className="grid two">
+                  <Field label="品牌名稱" value={salonBrandName} onChange={setSalonBrandName} placeholder="例如：Hair kiss；單店可留空用沙龍名稱" />
+                  <Field label="分店名稱" value={salonBranchName} onChange={setSalonBranchName} placeholder="例如：銅鑼灣分店 / 尖沙咀分店" />
                   <Field label="沙龍名稱" value={salonName} onChange={setSalonName} placeholder="例如：Maison de Beauté" required />
                   <SelectField label="主要地區" value={salonDistrict} onChange={setSalonDistrict} options={DISTRICTS} />
                   <Field label="完整地址" value={salonLocation} onChange={setSalonLocation} placeholder="例如：尖沙咀海港城 3 樓 3045 號舖" required className="span-2" />
@@ -863,6 +887,22 @@ function buildServicePayload(stylistID: string, services: ServiceDraft[]) {
       duration: toInt(item.duration, 60),
       description: item.description.trim(),
       price: toInt(item.price),
+    }));
+}
+
+function buildSalonServicePayload(salonID: string, services: ServiceDraft[]): SalonServicePayload[] {
+  return services
+    .filter((item) => item.name.trim())
+    .map((item, index) => ({
+      id: `${salonID}-service-${index + 1}`,
+      salon_id: salonID,
+      name: item.name.trim(),
+      category: item.category.trim() || '剪髮',
+      duration: toInt(item.duration, 60),
+      description: item.description.trim(),
+      price: toInt(item.price),
+      is_active: true,
+      display_order: (index + 1) * 10,
     }));
 }
 

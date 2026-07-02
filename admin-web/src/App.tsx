@@ -46,6 +46,8 @@ import type {
   ReportStatus,
   Salon,
   SalonApplication,
+  SalonBrand,
+  SalonServiceItem,
   SalonWork,
   ServiceItem,
   Stylist,
@@ -57,6 +59,8 @@ const emptyData: AdminData = {
   stylists: [],
   salons: [],
   services: [],
+  salonBrands: [],
+  salonServices: [],
   works: [],
   salonWorks: [],
   stylistApplications: [],
@@ -182,6 +186,8 @@ export default function App() {
       stylists,
       salons,
       services,
+      salonBrands,
+      salonServices,
       works,
       salonWorks,
       stylistApplications,
@@ -197,6 +203,8 @@ export default function App() {
       selectAll('stylists', 'display_order', true),
       selectAll('salons', 'display_order', true),
       selectAll('services', 'display_order', true),
+      selectAll('salon_brands', 'display_order', true),
+      selectAll('salon_services', 'display_order', true),
       selectAll('portfolio_works', 'display_order', true),
       selectAll('salon_portfolio_works', 'display_order', true),
       selectAll('stylist_applications', 'created_at', false),
@@ -214,6 +222,8 @@ export default function App() {
       stylists: stylists as Stylist[],
       salons: salons as Salon[],
       services: services as ServiceItem[],
+      salonBrands: salonBrands as SalonBrand[],
+      salonServices: salonServices as SalonServiceItem[],
       works: works as PortfolioWork[],
       salonWorks: salonWorks as SalonWork[],
       stylistApplications: stylistApplications as StylistApplication[],
@@ -357,7 +367,7 @@ export default function App() {
               approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id, data))}
               rejectStylist={(app) => runAction('拒絕髮型師申請', () => updateStylistApplicationStatus(app, 'rejected', session.user.id))}
               hideStylist={(app) => runAction('下架髮型師檔案', () => hideStylistApplication(app, session.user.id))}
-              approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id))}
+              approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id, data))}
               rejectSalon={(app) => runAction('拒絕沙龍申請', () => updateSalonApplicationStatus(app, 'rejected', session.user.id))}
               hideSalon={(app) => runAction('下架沙龍檔案', () => hideSalonApplication(app, session.user.id))}
             />
@@ -408,7 +418,7 @@ export default function App() {
           approveStylist={(app) => runAction('批准髮型師申請', () => approveStylistApplication(app, session.user.id, data))}
           rejectStylist={(app) => runAction('拒絕髮型師申請', () => updateStylistApplicationStatus(app, 'rejected', session.user.id))}
           hideStylist={(app) => runAction('下架髮型師檔案', () => hideStylistApplication(app, session.user.id))}
-          approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id))}
+          approveSalon={(app) => runAction('批准沙龍申請', () => approveSalonApplication(app, session.user.id, data))}
           rejectSalon={(app) => runAction('拒絕沙龍申請', () => updateSalonApplicationStatus(app, 'rejected', session.user.id))}
           hideSalon={(app) => runAction('下架沙龍檔案', () => hideSalonApplication(app, session.user.id))}
         />
@@ -643,9 +653,15 @@ function Applications({
                 key={item.id}
                 image={item.image_url}
                 title={item.name}
-                subtitle={`${item.location} · ${item.phone || '未填電話'}`}
+                subtitle={`${item.brand_name || item.name}${item.branch_name ? ` · ${item.branch_name}` : ''} · ${item.phone || '未填電話'}`}
                 status={item.status}
-                chips={[item.instagram_url ? 'IG 已提供' : '', item.open_hours, `HK$${item.start_price}`, ...item.tags.slice(0, 3)]}
+                chips={[
+                  item.services_payload?.length ? `${item.services_payload.length} 項服務` : '未填服務',
+                  item.instagram_url ? 'IG 已提供' : '',
+                  item.open_hours,
+                  `HK$${item.start_price}`,
+                  ...item.tags.slice(0, 3),
+                ]}
                 onView={() => setDetail({ kind: 'salonApplication', item })}
                 actions={
                   <>
@@ -752,7 +768,7 @@ function Catalog({
                 key={item.id}
                 image={item.image_url}
                 title={item.name}
-                subtitle={`${item.location} · HK$${item.start_price}`}
+                subtitle={`${item.branch_name || item.location} · HK$${item.start_price}`}
                 active={item.is_active}
                 featured={item.is_featured}
                 order={item.display_order}
@@ -1252,6 +1268,35 @@ function normalizeInstagram(value: string | null | undefined) {
   return withoutHost.replace(/^@/, '').replace(/\/+$/, '').split(/[/?#]/)[0] ?? '';
 }
 
+function resolveSalonBrandID(application: SalonApplication, data: AdminData, brandName: string) {
+  const normalizedName = normalizeLookup(brandName);
+  const existingBrand = data.salonBrands.find((brand) => normalizeLookup(brand.name) === normalizedName);
+  if (existingBrand) return existingBrand.id;
+
+  const existingBranch = data.salons.find((salon) => salon.brand_id && normalizeLookup(salon.name) === normalizedName);
+  if (existingBranch?.brand_id) return existingBranch.brand_id;
+
+  return application.salon_id === 'salon-hair-kiss-2ba81bac' || normalizedName === 'hair kiss' || normalizedName === 'hairkiss'
+    ? 'hair-kiss'
+    : `salon-brand-${stableIDSegment(brandName)}`;
+}
+
+function stableIDSegment(value: string) {
+  const ascii = value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (ascii) return ascii;
+
+  return Array.from(value.trim())
+    .map((character) => character.codePointAt(0)?.toString(16))
+    .filter(Boolean)
+    .join('-');
+}
+
 async function approveStylistApplication(application: StylistApplication, userID: string, data: AdminData) {
   const replacement = resolveStylistReplacementTarget(application, data);
   const targetStylistID = replacement?.id ?? application.stylist_id;
@@ -1311,9 +1356,34 @@ async function approveStylistApplication(application: StylistApplication, userID
   }
 }
 
-async function approveSalonApplication(application: SalonApplication, userID: string) {
+async function approveSalonApplication(application: SalonApplication, userID: string, data: AdminData) {
+  const brandName = (application.brand_name || application.name).trim();
+  const branchName = (application.branch_name || application.district || application.location).trim();
+  const brandID = brandName ? resolveSalonBrandID(application, data, brandName) : null;
+
+  if (brandID) {
+    await assertOk(
+      supabase.from('salon_brands').upsert(
+        {
+          id: brandID,
+          name: brandName,
+          primary_salon_id: application.salon_id,
+          description: branchName ? `${brandName} · ${branchName}` : brandName,
+          image_url: application.image_url,
+          instagram_url: application.instagram_url ?? '',
+          phone: application.phone ?? '',
+          is_active: true,
+          display_order: 100,
+        },
+        { onConflict: 'id' },
+      ),
+    );
+  }
+
   const salon = {
     id: application.salon_id,
+    brand_id: brandID,
+    branch_name: branchName,
     name: application.name,
     location: application.location,
     district: application.district ?? '',
@@ -1328,6 +1398,8 @@ async function approveSalonApplication(application: SalonApplication, userID: st
     is_active: true,
     is_featured: false,
     display_order: 100,
+    booking_enabled: true,
+    chat_enabled: true,
   };
 
   await assertOk(supabase.from('salons').upsert(salon, { onConflict: 'id' }));
@@ -1335,6 +1407,11 @@ async function approveSalonApplication(application: SalonApplication, userID: st
 
   const works = normalizeSalonWorks(application.works_payload, application.salon_id);
   if (works.length) await assertOk(supabase.from('salon_portfolio_works').insert(works));
+
+  await assertOk(supabase.from('salon_services').delete().eq('salon_id', application.salon_id));
+  const services = normalizeSalonServices(application.services_payload, application.salon_id);
+  if (services.length) await assertOk(supabase.from('salon_services').insert(services));
+
   await updateSalonApplicationStatus(application, 'approved', userID);
 }
 
@@ -1623,6 +1700,20 @@ function normalizeSalonWorks(items: PortfolioWork[] | null | undefined, salonID:
     media_kind: item.media_kind === 'video' ? 'video' : 'photo',
     video_url: item.media_kind === 'video' ? item.video_url ?? '' : '',
     thumbnail_url: item.thumbnail_url || item.image_url,
+    is_active: true,
+    display_order: (index + 1) * 10,
+  }));
+}
+
+function normalizeSalonServices(items: SalonServiceItem[] | null | undefined, salonID: string) {
+  return (items ?? []).map((item, index) => ({
+    id: item.id || `${salonID}-service-${index + 1}`,
+    salon_id: salonID,
+    name: item.name,
+    category: item.category || '剪髮',
+    duration: Number(item.duration || 60),
+    description: item.description || '',
+    price: Number(item.price || 0),
     is_active: true,
     display_order: (index + 1) * 10,
   }));
@@ -2008,6 +2099,8 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
             { label: '提交時間', value: formatDateSafe(detail.item.created_at) },
             { label: '申請 ID', value: detail.item.id },
             { label: '沙龍 ID', value: detail.item.salon_id },
+            { label: '品牌名稱', value: detail.item.brand_name },
+            { label: '分店名稱', value: detail.item.branch_name },
             { label: 'Admin note', value: detail.item.admin_note },
           ],
         },
@@ -2015,6 +2108,8 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
           title: '沙龍資料',
           fields: [
             { label: '名稱', value: detail.item.name },
+            { label: '品牌名稱', value: detail.item.brand_name },
+            { label: '分店名稱', value: detail.item.branch_name },
             { label: '主要地區', value: detail.item.district },
             { label: '地址', value: detail.item.location },
             { label: '電話', value: detail.item.phone },
@@ -2070,7 +2165,11 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
             { label: '首頁推薦', value: detail.item.is_featured ? '是' : '否' },
             { label: '排序', value: detail.item.display_order },
             { label: '沙龍 ID', value: detail.item.id },
+            { label: '品牌 ID', value: detail.item.brand_id },
+            { label: '分店名稱', value: detail.item.branch_name },
             { label: '名稱', value: detail.item.name },
+            { label: '可預約', value: detail.item.booking_enabled ? '是' : '否' },
+            { label: '可聊天', value: detail.item.chat_enabled ? '是' : '否' },
             { label: '地區', value: detail.item.district },
             { label: '地址', value: detail.item.location },
             { label: '電話', value: detail.item.phone },
@@ -2118,6 +2217,8 @@ function detailInfoSections(detail: DetailTarget): DetailSection[] {
 function detailServices(detail: DetailTarget, data: AdminData) {
   if (detail.kind === 'stylistApplication') return detail.item.services_payload ?? [];
   if (detail.kind === 'stylist') return data.services.filter((item) => item.stylist_id === detail.item.id);
+  if (detail.kind === 'salonApplication') return detail.item.services_payload ?? [];
+  if (detail.kind === 'salon') return data.salonServices.filter((item) => item.salon_id === detail.item.id);
   return [];
 }
 

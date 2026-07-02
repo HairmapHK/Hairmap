@@ -48,14 +48,17 @@ final class HairmapStore {
     private var isResolvingAuthenticatedRole = false
 
     var salons: [Salon] = SeedData.salons
+    var salonBrands: [SalonBrand] = []
     var stylists: [Stylist] = SeedData.stylists
     var inspiration: [InspirationItem] = SeedData.inspiration
     var sharedLooks: [SharedHairLook] = []
     var bookings: [Appointment] = []
     var messages: [ChatMessageItem] = []
+    var salonMessages: [SalonChatMessageItem] = []
     var blockedSlots: [BlockedSlot] = []
     var customerProfilesByID: [UUID: HairmapProfile] = [:]
     var salonWorks: [String: [PortfolioWork]] = [:]
+    var salonServices: [String: [SalonServiceItem]] = [:]
     var rankingOverrides: [RankingOverride] = []
     var pendingStylistApplications: [StylistApplication] = []
     var pendingSalonApplications: [SalonApplication] = []
@@ -71,7 +74,10 @@ final class HairmapStore {
     var selectedTab: CustomerTab = .discovery
     var customerPath: [CustomerRoute] = []
     var selectedStylistID = "master-leo"
+    var customerChatTargetStylistID: String?
     var selectedSalonID = "s1"
+    var salonBookingTargetSalonID: String?
+    var customerSalonChatTargetSalonID: String?
     var selectedService: ServiceItem?
     var bookingSourceFromTab = false
     var statusMessage = "本地種子資料模式"
@@ -133,6 +139,7 @@ final class HairmapStore {
             let activeBlockedUserIDs = isLocalExperience ? blockedUserIDs : payload.blockedUserIDs
 
             salons = payload.salons
+            salonBrands = payload.salonBrands
             stylists = filterBlockedReviews(in: payload.stylists, blockedUserIDs: activeBlockedUserIDs)
             inspiration = payload.inspiration.filter { !isProfileBlocked($0.authorID, in: activeBlockedUserIDs) }
             customerProfilesByID = Dictionary(uniqueKeysWithValues: payload.profiles.map { ($0.id, $0) })
@@ -142,8 +149,10 @@ final class HairmapStore {
             )
             bookings = scopedPrivateData.bookings
             messages = scopedPrivateData.messages
+            salonMessages = isLocalExperience ? salonMessages : payload.salonMessages
             blockedSlots = payload.blockedSlots
             salonWorks = payload.salonWorks
+            salonServices = payload.salonServices
             rankingOverrides = payload.rankingOverrides
             pendingStylistApplications = payload.stylistApplications
             pendingSalonApplications = payload.salonApplications
@@ -565,6 +574,7 @@ final class HairmapStore {
         hasCompletedInitialCatalogSync = false
         bookings = []
         messages = []
+        salonMessages = []
         customerProfilesByID = [:]
         likedLookIDs = []
         likedCommentIDs = []
@@ -628,9 +638,53 @@ final class HairmapStore {
     func startBooking(stylistID: String, service: ServiceItem?, fromTab: Bool = false) {
         selectedStylistID = stylistID
         selectedService = service
+        salonBookingTargetSalonID = nil
         bookingSourceFromTab = fromTab
         customerPath = []
         selectedTab = .booking
+    }
+
+    func startSalonBooking(salonID: String) {
+        selectedSalonID = salonID
+        salonBookingTargetSalonID = salonID
+        selectedService = nil
+        bookingSourceFromTab = false
+        customerPath = []
+        selectedTab = .booking
+    }
+
+    func startChat(stylistID: String) {
+        Self.applyCustomerChatRoute(
+            stylistID: stylistID,
+            selectedTab: &selectedTab,
+            customerPath: &customerPath,
+            selectedStylistID: &selectedStylistID,
+            customerChatTargetStylistID: &customerChatTargetStylistID,
+            customerSalonChatTargetSalonID: &customerSalonChatTargetSalonID
+        )
+    }
+
+    static func applyCustomerChatRoute(
+        stylistID: String,
+        selectedTab: inout CustomerTab,
+        customerPath: inout [CustomerRoute],
+        selectedStylistID: inout String,
+        customerChatTargetStylistID: inout String?,
+        customerSalonChatTargetSalonID: inout String?
+    ) {
+        selectedStylistID = stylistID
+        customerChatTargetStylistID = stylistID
+        customerSalonChatTargetSalonID = nil
+        customerPath = []
+        selectedTab = .chat
+    }
+
+    func startSalonChat(salonID: String) {
+        selectedSalonID = salonID
+        customerSalonChatTargetSalonID = salonID
+        customerChatTargetStylistID = nil
+        customerPath = []
+        selectedTab = .chat
     }
 
     func stylist(id: String? = nil) -> Stylist {
@@ -672,6 +726,47 @@ final class HairmapStore {
     func salon(id: String? = nil) -> Salon {
         let targetID = id ?? stylist().salonID
         return salons.first { $0.id == targetID } ?? salons[0]
+    }
+
+    func salonBrand(for salon: Salon) -> SalonBrand? {
+        guard let brandID = salon.brandID else { return nil }
+        return salonBrands.first { $0.id == brandID }
+    }
+
+    func salonBranches(for salon: Salon) -> [Salon] {
+        guard let brandID = salon.brandID else { return [salon] }
+        let branches = salons.filter { $0.brandID == brandID && $0.isActive }
+            .sorted { lhs, rhs in
+                if lhs.displayOrder != rhs.displayOrder { return lhs.displayOrder < rhs.displayOrder }
+                return lhs.displayBranchName < rhs.displayBranchName
+            }
+        return branches.isEmpty ? [salon] : branches
+    }
+
+    func displaySalonName(_ salon: Salon) -> String {
+        salonBrand(for: salon)?.name ?? salon.name
+    }
+
+    func salonServices(for salonID: String) -> [SalonServiceItem] {
+        if let saved = salonServices[salonID], !saved.isEmpty {
+            return saved.sorted { lhs, rhs in
+                if lhs.displayOrder != rhs.displayOrder { return lhs.displayOrder < rhs.displayOrder }
+                return lhs.price < rhs.price
+            }
+        }
+        let salon = self.salon(id: salonID)
+        return [
+            SalonServiceItem(
+                id: "\(salonID)-consultation",
+                salonID: salonID,
+                name: "到店諮詢 / 由店舖建議服務",
+                category: "諮詢",
+                duration: 30,
+                description: "適合未決定髮型或需要分店先評估髮質的客人",
+                price: salon.startPrice,
+                displayOrder: 999
+            )
+        ]
     }
 
     private var currentCustomerID: UUID? {
@@ -774,8 +869,9 @@ final class HairmapStore {
             customerID: session?.user.id ?? currentProfile?.id,
             stylistID: stylist.id,
             salonID: salon.id,
+            salonBrandID: salon.brandID,
             serviceID: service.id,
-            salonName: salon.name,
+            salonName: displaySalonName(salon),
             stylistName: stylist.name,
             clientName: cleanClientName,
             clientPhone: cleanClientPhone,
@@ -784,7 +880,10 @@ final class HairmapStore {
             endTime: endTime,
             serviceName: service.name,
             price: service.price,
-            status: .pending
+            status: .pending,
+            branchName: salon.displayBranchName,
+            assignmentMode: .stylistSelected,
+            assignedStylistID: stylist.id
         )
         bookings.insert(booking, at: 0)
 
@@ -798,6 +897,59 @@ final class HairmapStore {
             statusMessage = "預約已寫入 Supabase"
         } catch {
             statusMessage = "預約已保留在本地，Supabase 寫入待重試"
+        }
+
+        return booking
+    }
+
+    func submitSalonBooking(
+        service: SalonServiceItem,
+        salon: Salon,
+        date: String,
+        startTime: String,
+        endTime: String,
+        clientName: String,
+        clientPhone: String,
+        note: String = ""
+    ) async -> Appointment {
+        let cleanClientName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanClientPhone = clientPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let session = isLocalExperience ? nil : (try? await gateway.currentSession())
+        let booking = Appointment(
+            id: UUID(),
+            customerID: session?.user.id ?? currentProfile?.id,
+            stylistID: nil,
+            salonID: salon.id,
+            salonBrandID: salon.brandID,
+            serviceID: service.id,
+            salonName: displaySalonName(salon),
+            stylistName: "由店舖安排",
+            clientName: cleanClientName,
+            clientPhone: cleanClientPhone,
+            bookingDate: date,
+            startTime: startTime,
+            endTime: endTime,
+            serviceName: service.name,
+            price: service.price,
+            status: .pending,
+            branchName: salon.displayBranchName,
+            assignmentMode: .salonAssigns,
+            assignedStylistID: nil,
+            bookingNote: cleanNote
+        )
+        bookings.insert(booking, at: 0)
+
+        guard !gateway.isConfigured || session != nil else {
+            statusMessage = "訪客預約已保留在本機；正式寫入請先完成 Email 登入"
+            return booking
+        }
+
+        do {
+            try await gateway.createBooking(booking)
+            statusMessage = "Salon 預約請求已寫入 Supabase，等待店舖確認"
+        } catch {
+            statusMessage = "Salon 預約已保留在本地，Supabase 寫入待重試"
         }
 
         return booking
@@ -846,16 +998,17 @@ final class HairmapStore {
         }
     }
 
-    func saveSalon(_ salon: Salon, works: [PortfolioWork]) async {
+    func saveSalon(_ salon: Salon, works: [PortfolioWork], services: [SalonServiceItem] = []) async {
         if let index = salons.firstIndex(where: { $0.id == salon.id }) {
             salons[index] = salon
         } else {
             salons.insert(salon, at: 0)
         }
         salonWorks[salon.id] = works
+        salonServices[salon.id] = services
 
         do {
-            try await gateway.saveSalon(salon, works: works)
+            try await gateway.saveSalon(salon, works: works, services: services)
             statusMessage = "沙龍檔案已同步到 Supabase"
         } catch {
             statusMessage = "沙龍檔案已本地建立，Supabase 同步失敗"
@@ -1503,6 +1656,59 @@ final class HairmapStore {
             statusMessage = "訊息已同步"
         } catch {
             statusMessage = "訊息已本地送出，Supabase 同步失敗"
+        }
+    }
+
+    func sendSalonMessage(text: String, salonID: String, sender: SalonChatSenderRole = .customer) async {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        let salon = salon(id: salonID)
+        let session = isLocalExperience ? nil : (try? await gateway.currentSession())
+        let customerID = session?.user.id ?? currentProfile?.id ?? UUID()
+        let now = Date()
+        let createdAt = ISO8601DateFormatter().string(from: now)
+        let threadID: UUID
+
+        if gateway.isConfigured, let session {
+            do {
+                threadID = try await gateway.salonChatThreadID(
+                    customerID: session.user.id,
+                    salonID: salon.id,
+                    salonBrandID: salon.brandID,
+                    subject: "\(displaySalonName(salon)) \(salon.displayBranchName)"
+                )
+            } catch {
+                statusMessage = "Salon 對話建立失敗，請稍後再試"
+                return
+            }
+        } else {
+            threadID = UUID()
+        }
+
+        let message = SalonChatMessageItem(
+            id: "salon_msg_\(Int(Date().timeIntervalSince1970 * 1000))",
+            threadID: threadID,
+            customerID: customerID,
+            salonID: salon.id,
+            salonBrandID: salon.brandID,
+            senderRole: sender,
+            senderName: currentProfile?.displayName.nilIfEmpty ?? "Hairmap 顧客",
+            text: clean,
+            sentAt: DateFormatter.hmTime.string(from: now),
+            createdAt: createdAt
+        )
+        salonMessages.append(message)
+
+        guard !gateway.isConfigured || session != nil else {
+            statusMessage = "訪客 Salon 訊息已保留在本機；正式同步請先完成 Email 登入"
+            return
+        }
+
+        do {
+            try await gateway.insertSalonMessage(message)
+            statusMessage = "Salon 訊息已同步"
+        } catch {
+            statusMessage = "Salon 訊息已本地送出，Supabase 同步失敗"
         }
     }
 

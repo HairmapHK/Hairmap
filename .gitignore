@@ -20,4 +20,10 @@ apply-web/.env.staging
 apply-web/.env.production
 apply-web/node_modules/
 apply-web/dist/
+stylist-web/.env
+stylist-web/.env.local
+stylist-web/.env.staging
+stylist-web/.env.production
+stylist-web/node_modules/
+stylist-web/dist/
 .tmp-supabase-swift/

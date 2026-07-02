@@ -1,6 +1,5 @@
 import type { Session, User } from '@supabase/supabase-js';
 import {
-  AlertCircle,
   ArrowLeft,
   BadgeCheck,
   CalendarDays,
@@ -186,11 +185,6 @@ export default function App() {
       const resolvedProfile = profileRow as Profile | null;
       setProfile(resolvedProfile);
 
-      if (!resolvedProfile || resolvedProfile.role !== 'stylist') {
-        setLoading(false);
-        return;
-      }
-
       const { data: stylistRows, error: stylistError } = await supabase
         .from('stylists')
         .select('*')
@@ -205,7 +199,7 @@ export default function App() {
         ownedStylists.find((item) => item.is_active) ??
         ownedStylists[0] ??
         null;
-      const draftStylistID = preferredStylist?.id ?? resolvedProfile.stylist_id ?? `pending-stylist-${user.id.slice(0, 8)}`;
+      const draftStylistID = preferredStylist?.id ?? resolvedProfile?.stylist_id ?? `pending-stylist-${user.id.slice(0, 8)}`;
 
       setStylists(ownedStylists);
       setSelectedStylistID(draftStylistID);
@@ -428,10 +422,6 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  if (profile && profile.role !== 'stylist') {
-    return <WrongRoleScreen email={session.user.email ?? ''} />;
-  }
-
   return (
     <div className="mobile-shell">
       <header className="app-header">
@@ -554,8 +544,24 @@ function LoginScreen() {
     setSubmitting(true);
     setMessage('');
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) setMessage(error.message);
+    if (error) setMessage(authErrorMessage(error.message));
     setSubmitting(false);
+  }
+
+  async function signInWithGoogle() {
+    setSubmitting(true);
+    setMessage('');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: authRedirectURL(),
+        queryParams: { prompt: 'select_account' },
+      },
+    });
+    if (error) {
+      setMessage(authErrorMessage(error.message));
+      setSubmitting(false);
+    }
   }
 
   async function resetPassword() {
@@ -565,7 +571,7 @@ function LoginScreen() {
     }
     setSubmitting(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: window.location.href,
+      redirectTo: authRedirectURL(),
     });
     setMessage(error ? error.message : '已寄出重設密碼 email。');
     setSubmitting(false);
@@ -589,6 +595,10 @@ function LoginScreen() {
           {submitting ? <Loader2 className="spin" size={18} /> : <Lock size={18} />}
           登入
         </button>
+        <button className="google-button" type="button" onClick={signInWithGoogle} disabled={submitting}>
+          <BadgeCheck size={18} />
+          使用 Google 登入
+        </button>
         <button className="secondary-button" type="button" onClick={resetPassword} disabled={submitting}>
           重設密碼
         </button>
@@ -597,22 +607,6 @@ function LoginScreen() {
         </a>
         {message && <p className="form-message">{message}</p>}
       </form>
-    </div>
-  );
-}
-
-function WrongRoleScreen({ email }: { email: string }) {
-  return (
-    <div className="auth-screen">
-      <div className="login-card">
-        <AlertCircle size={38} />
-        <h1>此帳號不是髮型師</h1>
-        <p className="muted-text">{email}</p>
-        <button className="primary-button" onClick={() => void supabase.auth.signOut()}>
-          <LogOut size={18} />
-          登出
-        </button>
-      </div>
     </div>
   );
 }
@@ -1331,4 +1325,21 @@ function slugify(value: string) {
 function applyURL() {
   if (window.location.pathname.includes('/Hairmap/stylist')) return '/Hairmap/apply/';
   return '/apply/';
+}
+
+function authRedirectURL() {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  if (url.pathname.includes('/Hairmap/stylist')) {
+    url.pathname = '/Hairmap/stylist/';
+  }
+  return url.toString();
+}
+
+function authErrorMessage(message: string) {
+  if (message.toLowerCase().includes('invalid login credentials')) {
+    return 'Email / 密碼不正確。如果你平時用 Google 登入，請按「使用 Google 登入」。';
+  }
+  return message;
 }

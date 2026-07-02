@@ -332,6 +332,7 @@ textarea {
 
 .action-grid button,
 .primary-button,
+.google-button,
 .secondary-button,
 .danger-soft,
 .icon-text,
@@ -374,6 +375,14 @@ textarea {
   background: var(--gold);
   border-color: #111;
   box-shadow: 0 8px 0 #111;
+}
+
+.google-button {
+  width: 100%;
+  min-height: 52px;
+  color: white;
+  background: #111;
+  border-color: #111;
 }
 
 .secondary-button {
